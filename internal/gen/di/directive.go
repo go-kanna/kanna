@@ -3,6 +3,7 @@ package di
 import (
 	"errors"
 	"fmt"
+	"go/token"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -113,6 +114,11 @@ func applyDirectiveToken(pd *ParsedDirective, tok string) error {
 		}
 		if pd.Name != "" {
 			return errors.New("directive name= specified more than once")
+		}
+		// The name becomes the generated constructor's identifier, so an invalid
+		// one would only surface as a syntax error in the output.
+		if !token.IsIdentifier(value) {
+			return fmt.Errorf("directive name=%s is not a valid Go identifier", value)
 		}
 		pd.Name = value
 	case "returns":

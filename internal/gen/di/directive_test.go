@@ -88,6 +88,18 @@ func TestParseDirective(t *testing.T) {
 			wantErrs: []string{"directive name= requires a value"},
 		},
 		{
+			name:     "name is not an identifier",
+			lines:    []string{"//kanna:container name=1st"},
+			wantPD:   di.ParsedDirective{Found: true},
+			wantErrs: []string{"directive name=1st is not a valid Go identifier"},
+		},
+		{
+			name:     "name with a dot",
+			lines:    []string{"//kanna:container name=pkg.New"},
+			wantPD:   di.ParsedDirective{Found: true},
+			wantErrs: []string{"directive name=pkg.New is not a valid Go identifier"},
+		},
+		{
 			name:     "returns without =",
 			lines:    []string{"//kanna:container returns"},
 			wantPD:   di.ParsedDirective{Found: true},

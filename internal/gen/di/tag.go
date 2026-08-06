@@ -3,10 +3,11 @@ package di
 import (
 	"errors"
 	"fmt"
+	"go/token"
 	"strings"
 )
 
-// TagKind classifies the directive embedded in an di:"..." struct tag.
+// TagKind classifies the directive embedded in a di:"..." struct tag.
 type TagKind int
 
 const (
@@ -27,7 +28,7 @@ const (
 	TagEmbed
 )
 
-// ParsedTag holds the result of parsing the value of an di:"..." tag.
+// ParsedTag holds the result of parsing the value of a di:"..." tag.
 //
 // The role of the field (RoleOut / RoleArg / RoleOverride / RoleReturnsOnly) is
 // determined by the caller, which combines the tag with the field name ("_" vs.
@@ -73,6 +74,11 @@ func ParseTag(value string) (ParsedTag, error) {
 		}
 		if val == "" {
 			return ParsedTag{}, errors.New(`di:"arg=..." requires a name`)
+		}
+		// The name becomes a parameter in the generated constructor, so an
+		// invalid one would only surface as a syntax error in the output.
+		if !token.IsIdentifier(val) {
+			return ParsedTag{}, fmt.Errorf(`di:"arg=%s" is not a valid Go identifier`, val)
 		}
 		return ParsedTag{Kind: TagArg, ArgName: val}, nil
 	case "returns":

@@ -24,6 +24,8 @@ func TestParseTag(t *testing.T) {
 		{name: "arg", in: "arg", want: di.ParsedTag{Kind: di.TagArg}},
 		{name: "arg with name", in: "arg=primary", want: di.ParsedTag{Kind: di.TagArg, ArgName: "primary"}},
 		{name: "arg empty name", in: "arg=", wantErr: `di:"arg=..." requires a name`},
+		{name: "arg not an identifier", in: "arg=1st", wantErr: `di:"arg=1st" is not a valid Go identifier`},
+		{name: "arg with a dot", in: "arg=pkg.Name", wantErr: `di:"arg=pkg.Name" is not a valid Go identifier`},
 		{name: "returns", in: "returns", want: di.ParsedTag{Kind: di.TagReturns}},
 		{name: "returns with value", in: "returns=foo", wantErr: `di:"returns" does not take a value`},
 		{name: "embed", in: "embed", want: di.ParsedTag{Kind: di.TagEmbed}},
