@@ -1,16 +1,13 @@
 package scan_test
 
 import (
-	"go/ast"
-	"go/importer"
 	"go/parser"
 	"go/token"
-	"go/types"
-	"maps"
 	"slices"
 	"testing"
 
 	"github.com/go-kanna/kanna/internal/diag"
+	"github.com/go-kanna/kanna/internal/internaltest"
 	"github.com/go-kanna/kanna/internal/ir"
 	"github.com/go-kanna/kanna/internal/packages"
 	"github.com/go-kanna/kanna/internal/scan"
@@ -19,7 +16,7 @@ import (
 func TestStructs_ReportsUnexportedTypesAndFields(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Exported struct {
 	Public  string
@@ -55,7 +52,7 @@ func TestStructs_PreservesDeclarationOrder(t *testing.T) {
 
 	// Declared in reverse alphabetical order to prove the result is not simply
 	// the alphabetically sorted output of types.Scope.Names.
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Zebra struct{}
 type Mango struct{}
@@ -73,7 +70,7 @@ type Apple struct{}
 func TestStructs_PreservesFieldOrder(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Row struct {
 	Zebra string
@@ -97,7 +94,7 @@ type Row struct {
 func TestStructs_ReportsEmbeddedFields(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Base struct {
 	ID string
@@ -139,7 +136,7 @@ type Row struct {
 	Skip string
 }
 `
-	pkg := loadTestFile(t, src)
+	pkg := internaltest.LoadFile(t, src)
 
 	structs, ds := scan.Structs([]*packages.Package{pkg})
 	assertNoErrors(t, ds)
@@ -159,7 +156,7 @@ type Row struct {
 func TestStructs_ReportsGenericStructs(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Box[T any] struct {
 	Value T
@@ -178,7 +175,7 @@ type Box[T any] struct {
 func TestStructs_ExcludesAliasesAndNonStructTypes(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Real struct{}
 
@@ -202,7 +199,7 @@ type Reader interface{ Read() error }
 func TestStructs_SkipsGeneratedFiles(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestPackage(t, map[string]string{
+	pkg := internaltest.LoadPackage(t, map[string]string{
 		"a_handwritten.go": `package test
 
 type Handwritten struct{}
@@ -226,7 +223,7 @@ type Generated struct{}
 func TestStructs_CollectsDocComments(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 // Documented is a struct with its own doc comment.
 //kanna:something
@@ -265,7 +262,7 @@ type Undocumented struct{}
 func TestStructs_ReportsPackageMetadata(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Row struct{}
 `)
@@ -309,7 +306,7 @@ func TestStructs_ReportsMissingTypeInformation(t *testing.T) {
 func TestStructs_ReportsLoadErrors(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Row struct{}
 `)
@@ -394,7 +391,7 @@ func TestIsGenerated_NilFile(t *testing.T) {
 func TestResolveTypeExpr(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 type Row struct{}
 `)
@@ -411,7 +408,7 @@ type Row struct{}
 func TestResolveTypeExpr_Errors(t *testing.T) {
 	t.Parallel()
 
-	pkg := loadTestFile(t, `package test
+	pkg := internaltest.LoadFile(t, `package test
 
 const Answer = 42
 
@@ -471,47 +468,5 @@ func assertNoErrors(t *testing.T, ds []diag.Diag) {
 
 	if diag.HasErrors(ds) {
 		t.Fatalf("unexpected error diagnostics: %s", diag.Format(ds))
-	}
-}
-
-func loadTestFile(t *testing.T, src string) *packages.Package {
-	t.Helper()
-
-	return loadTestPackage(t, map[string]string{"test.go": src})
-}
-
-// loadTestPackage type-checks the given files and assembles the minimal
-// packages.Package that scan needs, avoiding a real module on disk.
-func loadTestPackage(t *testing.T, files map[string]string) *packages.Package {
-	t.Helper()
-
-	fset := token.NewFileSet()
-	syntax := make([]*ast.File, 0, len(files))
-	for _, name := range slices.Sorted(maps.Keys(files)) {
-		f, err := parser.ParseFile(fset, name, files[name], parser.ParseComments)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
-		syntax = append(syntax, f)
-	}
-
-	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
-	}
-	conf := &types.Config{Importer: importer.Default()}
-	pkg, err := conf.Check("test", fset, syntax, info)
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-
-	return &packages.Package{
-		PkgPath:   "test",
-		Name:      "test",
-		Syntax:    syntax,
-		Types:     pkg,
-		TypesInfo: info,
-		Fset:      fset,
 	}
 }
