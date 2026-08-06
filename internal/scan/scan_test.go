@@ -361,24 +361,59 @@ type (
 	}
 }
 
-func TestStructs_DeduplicatesByImportPath(t *testing.T) {
+func TestStructs_KeepsOnePackagePerImportPath(t *testing.T) {
 	t.Parallel()
 
 	// With Tests enabled, go/packages returns a package and its in-package test
-	// variant under one PkgPath. Loading the same source twice reproduces that
-	// shape: the struct must be reported once.
-	src := `package test
+	// variant under one PkgPath. Reading both would mix types from two separate
+	// type-check runs, which go/types treats as distinct. The test variant is a
+	// superset, so it is the one kept.
+	plainSrc := `package test
 
 type Row struct{}
 `
-	first := internaltest.LoadFile(t, src)
-	second := internaltest.LoadFile(t, src)
+	variantSrc := `package test
 
-	structs, ds := scan.Structs([]*packages.Package{first, second})
-	assertNoErrors(t, ds)
+type Row struct{}
 
-	if got, want := structNames(structs), []string{"Row"}; !slices.Equal(got, want) {
-		t.Errorf("structs = %v, want %v", got, want)
+type TestOnly struct{}
+`
+
+	newPkg := func(id, src string) *packages.Package {
+		pkg := internaltest.LoadFile(t, src)
+		pkg.ID = id
+		return pkg
+	}
+
+	tests := []struct {
+		name string
+		pkgs func() []*packages.Package
+	}{
+		{
+			name: "plain first",
+			pkgs: func() []*packages.Package {
+				return []*packages.Package{newPkg("test", plainSrc), newPkg("test [test.test]", variantSrc)}
+			},
+		},
+		{
+			name: "variant first",
+			pkgs: func() []*packages.Package {
+				return []*packages.Package{newPkg("test [test.test]", variantSrc), newPkg("test", plainSrc)}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			structs, ds := scan.Structs(tt.pkgs())
+			assertNoErrors(t, ds)
+
+			if got, want := structNames(structs), []string{"Row", "TestOnly"}; !slices.Equal(got, want) {
+				t.Errorf("structs = %v, want %v", got, want)
+			}
+		})
 	}
 }
 

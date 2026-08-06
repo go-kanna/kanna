@@ -32,46 +32,68 @@ import (
 // declarations. Type aliases are excluded because they name a type declared
 // elsewhere rather than a new struct.
 //
-// A single import path can be loaded more than once — with Tests enabled,
-// go/packages returns both a package and its in-package test variant under the
-// same PkgPath — so a struct already reported for an import path is not reported
-// again. Packages are visited in ID order to keep which variant wins stable.
+// When one import path is loaded more than once, only a single package is read;
+// see dedupeByImportPath.
 //
 // Load errors reported by go/packages are returned as error diagnostics. Any
 // structs that could still be resolved are returned alongside them, so callers
 // should check the diagnostics before using the result.
 func Structs(pkgs []*packages.Package) ([]ir.Struct, []diag.Diag) {
-	ordered := make([]*packages.Package, 0, len(pkgs))
-	for _, pkg := range pkgs {
-		if pkg != nil {
-			ordered = append(ordered, pkg)
-		}
-	}
-	slices.SortStableFunc(ordered, func(a, b *packages.Package) int {
-		return cmp.Compare(a.ID, b.ID)
-	})
-
 	var (
 		structs []ir.Struct
 		diags   []diag.Diag
 	)
-	seen := make(map[string]bool)
 
-	for _, pkg := range ordered {
+	for _, pkg := range dedupeByImportPath(pkgs) {
 		ss, ds := structsInPackage(pkg)
+		structs = append(structs, ss...)
 		diags = append(diags, ds...)
-
-		for _, s := range ss {
-			key := s.PkgPath + "." + s.Name
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			structs = append(structs, s)
-		}
 	}
 
 	return structs, diags
+}
+
+// dedupeByImportPath keeps a single package per import path, ordered by ID.
+//
+// With Tests enabled, go/packages returns both a package and its in-package test
+// variant under one import path. Taking structs from both would do more than
+// report a declaration twice: the variants are type-checked separately, so two
+// identical-looking types are not identical to go/types and any later comparison
+// against them fails. The test variant declares everything the plain one does
+// plus whatever _test.go adds, so keeping it loses nothing.
+func dedupeByImportPath(pkgs []*packages.Package) []*packages.Package {
+	best := make(map[string]*packages.Package, len(pkgs))
+	for _, pkg := range pkgs {
+		if pkg == nil {
+			continue
+		}
+		if prev, ok := best[pkg.PkgPath]; !ok || preferred(pkg, prev) {
+			best[pkg.PkgPath] = pkg
+		}
+	}
+
+	chosen := make([]*packages.Package, 0, len(best))
+	for _, pkg := range best {
+		chosen = append(chosen, pkg)
+	}
+	slices.SortStableFunc(chosen, func(a, b *packages.Package) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
+	return chosen
+}
+
+// preferred reports whether a should win over b for a shared import path.
+//
+// A variant is recognizable by an ID that differs from its import path, such as
+// "example.com/p [example.com/p.test]".
+func preferred(a, b *packages.Package) bool {
+	aVariant := a.ID != a.PkgPath
+	bVariant := b.ID != b.PkgPath
+	if aVariant != bVariant {
+		return aVariant
+	}
+	return a.ID < b.ID
 }
 
 func structsInPackage(pkg *packages.Package) ([]ir.Struct, []diag.Diag) {
