@@ -67,8 +67,9 @@ const (
 	// The field's value is supplied by a resolved provider.
 	RoleOut Role = iota
 
-	// RoleArg is a blank field that declares a constructor argument. The
-	// value is passed in by the caller and is not stored in the container.
+	// RoleArg is a field that declares a constructor argument whose value is
+	// passed in by the caller. A blank field only declares the argument, while
+	// a named field also stores the value in the container.
 	RoleArg
 
 	// RoleOverride is a blank field that overrides which provider is used
