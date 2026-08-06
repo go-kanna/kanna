@@ -16,6 +16,10 @@ import (
 // so callers can refer to it through this package alone.
 type Package = packages.Package
 
+// Error is an alias for golang.org/x/tools/go/packages.Error, re-exported so
+// callers can inspect load failures without importing the upstream package.
+type Error = packages.Error
+
 // Config controls how packages are loaded.
 type Config struct {
 	// BuildTags is the list of build tags to pass via the -tags flag.
