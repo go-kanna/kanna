@@ -2,7 +2,7 @@
 // declarations.
 //
 // The types in this file are the DI-specific interpretation of what the shared
-// scan layer reports: a container is a struct whose fields carry inject tags,
+// scan layer reports: a container is a struct whose fields carry di tags,
 // and a provider is a top-level function that can produce a value. Both are
 // derived from ir.Struct rather than discovered by scanning directly.
 package di
@@ -15,8 +15,8 @@ import (
 // Container is a struct that di generates a constructor for.
 //
 // A struct becomes a container when at least one of its fields carries an
-// inject:"..." tag. Metadata such as the constructor name, return type, and
-// must mode comes from an optional //di:container directive.
+// di:"..." tag. Metadata such as the constructor name, return type, and
+// must mode comes from an optional //kanna:container directive.
 type Container struct {
 	PkgPath    string
 	PkgName    string
@@ -32,7 +32,7 @@ type Container struct {
 }
 
 // Field is a field of a container struct that participates in dependency
-// injection. Fields without an inject tag are not represented here.
+// injection. Fields without an di tag are not represented here.
 type Field struct {
 	// Name is the field's identifier. "_" indicates a blank field that does
 	// not participate in the struct literal.
@@ -45,7 +45,7 @@ type Field struct {
 	Role Role
 
 	// ProviderRef holds the textual provider reference declared via with=...
-	// It is empty for auto-resolved fields (inject:"") and for arg fields.
+	// It is empty for auto-resolved fields (di:"") and for arg fields.
 	ProviderRef ProviderRef
 
 	// ArgName overrides the constructor argument name when Role is RoleArg.
@@ -97,7 +97,7 @@ type Provider struct {
 	Pos          token.Position
 }
 
-// Directive captures metadata supplied by a //di:container comment.
+// Directive captures metadata supplied by a //kanna:container comment.
 //
 // All fields are optional. Empty/zero values mean "fall back to defaults"
 // (constructor name derived from struct name, return type *<Container>, no
