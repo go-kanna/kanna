@@ -113,8 +113,8 @@ func HasErrors(ds []Diag) bool {
 	return false
 }
 
-// Format renders all diagnostics, one per line block, with a blank line
-// between successive blocks. The order of ds is preserved.
+// Format renders all diagnostics, one block per diagnostic, separated by a
+// single newline. The order of ds is preserved.
 func Format(ds []Diag) string {
 	if len(ds) == 0 {
 		return ""
