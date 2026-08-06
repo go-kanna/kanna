@@ -4,6 +4,7 @@ BUILD_DIR = bin
 test:
 	go test ./... -race
 
+.PHONY: lint
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
 		echo "golangci-lint is not installed"; \
@@ -11,6 +12,7 @@ lint:
 	}
 	golangci-lint run
 
+.PHONY: lint-fix
 lint-fix:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
 		echo "golangci-lint is not installed"; \
