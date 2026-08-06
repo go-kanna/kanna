@@ -48,7 +48,7 @@ type Container struct {
 	}
 }
 
-func TestContainers_SkipsStructsWithoutInjectTags(t *testing.T) {
+func TestContainers_SkipsStructsWithoutDITags(t *testing.T) {
 	t.Parallel()
 
 	src := `package test
@@ -64,6 +64,26 @@ type Tagged struct {
 	containers, ds := containersOf(t, src)
 	assertNoErrors(t, ds)
 
+	if len(containers) != 0 {
+		t.Errorf("containers = %d, want 0", len(containers))
+	}
+}
+
+func TestContainers_ReportsDirectiveWithoutTaggedField(t *testing.T) {
+	t.Parallel()
+
+	// Skipping a struct with no di tag is right, but an explicit directive means
+	// the author expected a container, so dropping it silently hides a mistake.
+	src := `package test
+
+//kanna:container name=NewApp
+type app struct {
+	Name string
+}
+`
+	containers, ds := containersOf(t, src)
+
+	assertErrorContains(t, ds, "//kanna:container on app but no field carries a di tag")
 	if len(containers) != 0 {
 		t.Errorf("containers = %d, want 0", len(containers))
 	}
@@ -149,6 +169,36 @@ type Container struct {
 	}
 }
 
+func TestContainers_AssignsReturnsOnlyRole(t *testing.T) {
+	t.Parallel()
+
+	// A blank returns field declares the constructor's return type without
+	// contributing a value to the struct literal.
+	src := `package test
+
+type Greeter interface{ Greet() string }
+type DB struct{}
+
+type Container struct {
+	_  Greeter ` + "`di:\"returns\"`" + `
+	DB DB      ` + "`di:\"\"`" + `
+}
+`
+	containers, ds := containersOf(t, src)
+	assertNoErrors(t, ds)
+
+	fields := containers[0].Fields
+	if got, want := len(fields), 2; got != want {
+		t.Fatalf("fields = %d, want %d", got, want)
+	}
+	if fields[0].Role != di.RoleReturnsOnly {
+		t.Errorf("field 0 Role = %v, want RoleReturnsOnly", fields[0].Role)
+	}
+	if !fields[0].IsReturns {
+		t.Error("field 0 IsReturns = false, want true")
+	}
+}
+
 func TestContainers_RejectsBlankMarker(t *testing.T) {
 	t.Parallel()
 
@@ -163,7 +213,8 @@ type Container struct {
 `
 	containers, ds := containersOf(t, src)
 
-	assertErrorContains(t, ds, `_ field requires di:"with=..."`)
+	// The message must list every form that is legal on a blank field.
+	assertErrorContains(t, ds, `_ field requires di:"with=...", di:"arg", di:"returns" or di:"embed"`)
 	// The valid field still forms a container so the rest of the model survives.
 	if got, want := len(containers), 1; got != want {
 		t.Fatalf("containers = %d, want %d", got, want)
@@ -190,7 +241,7 @@ type Container struct {
 	assertErrorContains(t, ds, `di:"embed" requires a blank field (_)`)
 }
 
-func TestContainers_RejectsEmbeddedFieldWithInjectTag(t *testing.T) {
+func TestContainers_RejectsEmbeddedFieldWithDITag(t *testing.T) {
 	t.Parallel()
 
 	src := `package test
@@ -253,7 +304,7 @@ type app struct {
 	}
 }
 
-func TestContainers_ResolvesDirectiveReturnType(t *testing.T) {
+func TestContainers_ResolvesLocalReturnType(t *testing.T) {
 	t.Parallel()
 
 	src := `package test
@@ -273,6 +324,32 @@ type app struct {
 		t.Fatal("Directive.ReturnType = nil, want test.Greeter")
 	}
 	if want := "test.Greeter"; got.String() != want {
+		t.Errorf("Directive.ReturnType = %q, want %q", got.String(), want)
+	}
+}
+
+func TestContainers_ResolvesQualifiedReturnType(t *testing.T) {
+	t.Parallel()
+
+	// A qualified name resolves only when the expression is evaluated at a
+	// position inside the declaring file, since imports live in file scope.
+	src := `package test
+
+import "io"
+
+//kanna:container returns=io.Writer
+type app struct {
+	W io.Writer ` + "`di:\"\"`" + `
+}
+`
+	containers, ds := containersOf(t, src)
+	assertNoErrors(t, ds)
+
+	got := containers[0].Directive.ReturnType
+	if got == nil {
+		t.Fatal("Directive.ReturnType = nil, want io.Writer")
+	}
+	if want := "io.Writer"; got.String() != want {
 		t.Errorf("Directive.ReturnType = %q, want %q", got.String(), want)
 	}
 }
@@ -318,7 +395,7 @@ type app struct {
 	assertErrorContains(t, ds, `unknown directive key "xyz"`)
 }
 
-func TestContainers_ReportsMissingDeclaringPackage(t *testing.T) {
+func TestContainers_ReportsMissingFileSet(t *testing.T) {
 	t.Parallel()
 
 	src := `package test
@@ -331,13 +408,12 @@ type app struct {
 }
 `
 	pkg := internaltest.LoadFile(t, src)
-	structs, ds := scan.Structs([]*packages.Package{pkg})
-	assertNoErrors(t, ds)
+	structs, scanDiags := scan.Structs([]*packages.Package{pkg})
+	assertNoErrors(t, scanDiags)
 
-	// Pass no packages so the declaring package cannot be looked up by path.
 	containers, ds := di.Containers(nil, structs)
 
-	assertErrorContains(t, ds, "declaring package is unavailable")
+	assertErrorContains(t, ds, "file set or package unavailable")
 	if got, want := len(containers), 1; got != want {
 		t.Fatalf("containers = %d, want %d", got, want)
 	}
@@ -392,10 +468,10 @@ type Generated struct {
 `,
 	})
 
-	structs, ds := scan.Structs([]*packages.Package{pkg})
-	assertNoErrors(t, ds)
+	structs, scanDiags := scan.Structs([]*packages.Package{pkg})
+	assertNoErrors(t, scanDiags)
 
-	containers, ds := di.Containers([]*packages.Package{pkg}, structs)
+	containers, ds := di.Containers(pkg.Fset, structs)
 	assertNoErrors(t, ds)
 
 	if got, want := len(containers), 1; got != want {
@@ -418,7 +494,7 @@ func containersOf(t *testing.T, src string) ([]di.Container, []diag.Diag) {
 		t.Fatalf("scan reported errors: %s", diag.Format(ds))
 	}
 
-	return di.Containers([]*packages.Package{pkg}, structs)
+	return di.Containers(pkg.Fset, structs)
 }
 
 func assertNoErrors(t *testing.T, ds []diag.Diag) {

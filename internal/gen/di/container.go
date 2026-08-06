@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/ir"
-	"github.com/go-kanna/kanna/internal/packages"
 	"github.com/go-kanna/kanna/internal/scan"
 )
 
@@ -16,28 +15,22 @@ const tagKey = "di"
 
 // Containers derives the DI containers from the structs reported by scan.
 //
-// A struct becomes a container when at least one of its fields carries an
-// di tag; structs without any are skipped without a diagnostic, since the
-// scan layer reports every struct in the package regardless of relevance.
+// A struct becomes a container when at least one of its fields carries a di tag.
+// A struct with no di tag at all is skipped without a diagnostic, since scan
+// reports every struct in the package regardless of relevance — unless it is
+// annotated with a //kanna:container directive, which makes the missing tag a
+// mistake worth reporting.
 //
-// pkgs supplies the type-checked packages the structs came from. They are needed
-// to resolve a directive's returns= expression in the declaring package's scope,
-// which is matched by import path.
-func Containers(pkgs []*packages.Package, structs []ir.Struct) ([]Container, []diag.Diag) {
-	byPath := make(map[string]*packages.Package, len(pkgs))
-	for _, pkg := range pkgs {
-		if pkg != nil {
-			byPath[pkg.PkgPath] = pkg
-		}
-	}
-
+// fset is the file set the structs were parsed with. It is needed to evaluate a
+// directive's returns= expression in the scope of the declaring file.
+func Containers(fset *token.FileSet, structs []ir.Struct) ([]Container, []diag.Diag) {
 	var (
 		containers []Container
 		diags      []diag.Diag
 	)
 
 	for _, s := range structs {
-		c, ds, ok := containerOf(byPath[s.PkgPath], s)
+		c, ds, ok := containerOf(fset, s)
 		diags = append(diags, ds...)
 		if ok {
 			containers = append(containers, c)
@@ -48,21 +41,28 @@ func Containers(pkgs []*packages.Package, structs []ir.Struct) ([]Container, []d
 }
 
 // containerOf converts s into a Container. The final return value reports
-// whether s is a container at all; diagnostics are returned either way so that
-// a malformed tag is reported even when it leaves the struct with no usable
+// whether s is a container at all; diagnostics are returned either way so that a
+// malformed tag is reported even when it leaves the struct with no usable
 // fields.
-func containerOf(pkg *packages.Package, s ir.Struct) (Container, []diag.Diag, bool) {
+func containerOf(fset *token.FileSet, s ir.Struct) (Container, []diag.Diag, bool) {
 	fields, diags := containerFields(s)
-	if len(fields) == 0 {
-		return Container{}, diags, false
-	}
 
 	pd, errs := ParseDirective(s.Doc)
 	for _, msg := range errs {
 		diags = append(diags, diag.Errorf(s.Pos, "%s", msg))
 	}
 
-	directive, dds := buildDirective(pkg, pd, s.Pos)
+	if len(fields) == 0 {
+		// Silence is right for a struct that never asked to be a container, but
+		// an explicit directive means the author expected one.
+		if pd.Found {
+			diags = append(diags, diag.Errorf(s.Pos,
+				"//kanna:container on %s but no field carries a %s tag", s.Name, tagKey))
+		}
+		return Container{}, diags, false
+	}
+
+	directive, dds := buildDirective(fset, s, pd)
 	diags = append(diags, dds...)
 
 	return Container{
@@ -97,7 +97,7 @@ func containerFields(s ir.Struct) ([]Field, []diag.Diag) {
 		}
 
 		if f.Embedded {
-			diags = append(diags, diag.Errorf(f.Pos, "embedded field with di tag is not supported"))
+			diags = append(diags, diag.Errorf(f.Pos, "embedded field with %s tag is not supported", tagKey))
 			continue
 		}
 
@@ -129,7 +129,8 @@ func decideRole(fieldName string, pt ParsedTag, pos token.Position) (Role, *diag
 	switch pt.Kind {
 	case TagMarker:
 		if blank {
-			d := diag.Errorf(pos, `_ field requires di:"with=...", di:"arg" or di:"returns"`)
+			d := diag.Errorf(pos,
+				`_ field requires di:"with=...", di:"arg", di:"returns" or di:"embed"`)
 			return 0, &d
 		}
 		return RoleOut, nil
@@ -168,7 +169,11 @@ func decideRole(fieldName string, pt ParsedTag, pos token.Position) (Role, *diag
 
 // buildDirective converts a ParsedDirective into a Directive, resolving the
 // returns expression to a concrete type when one is present.
-func buildDirective(pkg *packages.Package, pd ParsedDirective, pos token.Position) (Directive, []diag.Diag) {
+//
+// The expression is evaluated at the position of the struct declaration so that
+// the file's imports are in scope, which is what lets a qualified name such as
+// greeter.Greeter resolve.
+func buildDirective(fset *token.FileSet, s ir.Struct, pd ParsedDirective) (Directive, []diag.Diag) {
 	d := Directive{
 		Name: pd.Name,
 		Must: pd.Must,
@@ -176,16 +181,12 @@ func buildDirective(pkg *packages.Package, pd ParsedDirective, pos token.Positio
 	if pd.ReturnsExpr == "" {
 		return d, nil
 	}
-	if pkg == nil {
-		return d, []diag.Diag{
-			diag.Errorf(pos, "directive returns=%s: declaring package is unavailable", pd.ReturnsExpr),
-		}
-	}
 
-	t, err := scan.ResolveTypeExpr(pkg, pd.ReturnsExpr)
+	obj := s.Named.Obj()
+	t, err := scan.ResolveTypeExpr(fset, obj.Pkg(), obj.Pos(), pd.ReturnsExpr)
 	if err != nil {
 		return d, []diag.Diag{
-			diag.Errorf(pos, "directive returns=%s: %v", pd.ReturnsExpr, err),
+			diag.Errorf(s.Pos, "directive returns=%s: %v", pd.ReturnsExpr, err),
 		}
 	}
 	d.ReturnType = t

@@ -16,6 +16,7 @@ import (
 	"go/types"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-kanna/kanna/internal/diag"
@@ -31,22 +32,43 @@ import (
 // declarations. Type aliases are excluded because they name a type declared
 // elsewhere rather than a new struct.
 //
+// A single import path can be loaded more than once — with Tests enabled,
+// go/packages returns both a package and its in-package test variant under the
+// same PkgPath — so a struct already reported for an import path is not reported
+// again. Packages are visited in ID order to keep which variant wins stable.
+//
 // Load errors reported by go/packages are returned as error diagnostics. Any
 // structs that could still be resolved are returned alongside them, so callers
 // should check the diagnostics before using the result.
 func Structs(pkgs []*packages.Package) ([]ir.Struct, []diag.Diag) {
+	ordered := make([]*packages.Package, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		if pkg != nil {
+			ordered = append(ordered, pkg)
+		}
+	}
+	slices.SortStableFunc(ordered, func(a, b *packages.Package) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
 	var (
 		structs []ir.Struct
 		diags   []diag.Diag
 	)
+	seen := make(map[string]bool)
 
-	for _, pkg := range pkgs {
-		if pkg == nil {
-			continue
-		}
+	for _, pkg := range ordered {
 		ss, ds := structsInPackage(pkg)
-		structs = append(structs, ss...)
 		diags = append(diags, ds...)
+
+		for _, s := range ss {
+			key := s.PkgPath + "." + s.Name
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			structs = append(structs, s)
+		}
 	}
 
 	return structs, diags
@@ -55,7 +77,7 @@ func Structs(pkgs []*packages.Package) ([]ir.Struct, []diag.Diag) {
 func structsInPackage(pkg *packages.Package) ([]ir.Struct, []diag.Diag) {
 	var diags []diag.Diag
 	for _, e := range pkg.Errors {
-		diags = append(diags, diag.Errorf(token.Position{}, "%s", e))
+		diags = append(diags, diag.Errorf(errorPosition(e), "%s", e.Msg))
 	}
 
 	if pkg.Types == nil {
@@ -137,7 +159,7 @@ func generatedFiles(pkg *packages.Package) map[string]bool {
 
 	generated := make(map[string]bool)
 	for _, file := range pkg.Syntax {
-		if file == nil || !IsGenerated(file) {
+		if file == nil || !ast.IsGenerated(file) {
 			continue
 		}
 		generated[pkg.Fset.Position(file.Pos()).Filename] = true
@@ -146,8 +168,12 @@ func generatedFiles(pkg *packages.Package) map[string]bool {
 }
 
 // docComments maps each declared type name to the raw comment lines attached to
-// its declaration. A comment on the enclosing GenDecl is used when the TypeSpec
-// itself carries none, which is how a grouped declaration documents its types.
+// its declaration.
+//
+// A comment on the enclosing GenDecl stands in only for a declaration holding a
+// single TypeSpec. In a grouped declaration the GenDecl comment documents the
+// group as a whole, so inheriting it would hand every type in the group the same
+// directive.
 func docComments(files []*ast.File) map[string][]string {
 	docs := make(map[string][]string)
 
@@ -166,7 +192,7 @@ func docComments(files []*ast.File) map[string][]string {
 					continue
 				}
 				cg := ts.Doc
-				if cg == nil {
+				if cg == nil && len(gd.Specs) == 1 {
 					cg = gd.Doc
 				}
 				if lines := commentLines(cg); len(lines) > 0 {
@@ -193,42 +219,20 @@ func commentLines(cg *ast.CommentGroup) []string {
 	return lines
 }
 
-// IsGenerated reports whether file carries the canonical
-// "Code generated ... DO NOT EDIT." comment before its package clause, per
-// https://golang.org/s/generatedcode.
-func IsGenerated(file *ast.File) bool {
-	if file == nil || len(file.Comments) == 0 {
-		return false
+// ResolveTypeExpr evaluates a textual type expression as if it appeared at pos
+// in pkg.
+//
+// pos must fall inside one of the package's files. types.Eval resolves names in
+// the scope enclosing pos, and only a file scope holds the package's imports, so
+// passing token.NoPos evaluates in package scope where every qualified
+// expression such as "greeter.Greeter" fails to resolve. The position of the
+// declaration carrying the expression is a good choice.
+func ResolveTypeExpr(fset *token.FileSet, pkg *types.Package, pos token.Pos, expr string) (types.Type, error) {
+	if fset == nil || pkg == nil {
+		return nil, errors.New("file set or package unavailable")
 	}
 
-	first := file.Comments[0]
-	if first == nil || first.End() > file.Package {
-		return false
-	}
-
-	for _, c := range first.List {
-		if c == nil {
-			continue
-		}
-		line := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-		if strings.HasPrefix(line, "Code generated") && strings.HasSuffix(line, "DO NOT EDIT.") {
-			return true
-		}
-	}
-
-	return false
-}
-
-// ResolveTypeExpr evaluates a textual type expression in the scope of pkg. The
-// expression may reference any name visible from the package, including its
-// imports, so callers are responsible for ensuring the expression uses names
-// that package can see.
-func ResolveTypeExpr(pkg *packages.Package, expr string) (types.Type, error) {
-	if pkg.Types == nil || pkg.Fset == nil {
-		return nil, errors.New("package types or fset unavailable")
-	}
-
-	tv, err := types.Eval(pkg.Fset, pkg.Types, token.NoPos, expr)
+	tv, err := types.Eval(fset, pkg, pos, expr)
 	if err != nil {
 		return nil, fmt.Errorf("types.Eval: %w", err)
 	}
@@ -237,6 +241,35 @@ func ResolveTypeExpr(pkg *packages.Package, expr string) (types.Type, error) {
 	}
 
 	return tv.Type, nil
+}
+
+// errorPosition converts the position that go/packages records on a load error,
+// so the diagnostic keeps pointing at the offending source instead of nowhere.
+//
+// packages.Error.Pos is formatted by token.Position.String, i.e.
+// "file:line:col". Splitting from the right keeps a Windows drive letter in the
+// filename.
+func errorPosition(e packages.Error) token.Position {
+	if e.Pos == "" {
+		return token.Position{}
+	}
+
+	parts := strings.Split(e.Pos, ":")
+	if len(parts) < 3 {
+		return token.Position{Filename: e.Pos}
+	}
+
+	line, lineErr := strconv.Atoi(parts[len(parts)-2])
+	col, colErr := strconv.Atoi(parts[len(parts)-1])
+	if lineErr != nil || colErr != nil {
+		return token.Position{Filename: e.Pos}
+	}
+
+	return token.Position{
+		Filename: strings.Join(parts[:len(parts)-2], ":"),
+		Line:     line,
+		Column:   col,
+	}
 }
 
 func positionOf(pkg *packages.Package, pos token.Pos) token.Position {
