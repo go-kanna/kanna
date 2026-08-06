@@ -1,6 +1,6 @@
-// Package internaltest provides helpers shared by the tests of several internal
-// packages. Nothing here is part of a public API.
-package internaltest
+// Package pkgtest provides helpers for tests that need a loaded package.
+// Nothing here is part of a public API.
+package pkgtest
 
 import (
 	"go/ast"

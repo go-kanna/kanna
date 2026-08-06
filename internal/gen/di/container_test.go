@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/gen/di"
-	"github.com/go-kanna/kanna/internal/internaltest"
 	"github.com/go-kanna/kanna/internal/packages"
+	"github.com/go-kanna/kanna/internal/pkgtest"
 	"github.com/go-kanna/kanna/internal/scan"
 )
 
@@ -407,7 +407,7 @@ type app struct {
 	G Greeter ` + "`di:\"\"`" + `
 }
 `
-	pkg := internaltest.LoadFile(t, src)
+	pkg := pkgtest.LoadFile(t, src)
 	structs, scanDiags := scan.Structs([]*packages.Package{pkg})
 	assertNoErrors(t, scanDiags)
 
@@ -449,7 +449,7 @@ type Apple struct {
 func TestContainers_SkipsGeneratedFiles(t *testing.T) {
 	t.Parallel()
 
-	pkg := internaltest.LoadPackage(t, map[string]string{
+	pkg := pkgtest.LoadPackage(t, map[string]string{
 		"a_handwritten.go": `package test
 
 type DB struct{}
@@ -487,7 +487,7 @@ type Generated struct {
 func containersOf(t *testing.T, src string) ([]di.Container, []diag.Diag) {
 	t.Helper()
 
-	pkg := internaltest.LoadFile(t, src)
+	pkg := pkgtest.LoadFile(t, src)
 
 	structs, ds := scan.Structs([]*packages.Package{pkg})
 	if diag.HasErrors(ds) {
