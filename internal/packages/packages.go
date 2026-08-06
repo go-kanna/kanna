@@ -7,6 +7,7 @@ package packages
 import (
 	"errors"
 	"fmt"
+	"go/token"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -22,6 +23,9 @@ type Error = packages.Error
 
 // Config controls how packages are loaded.
 type Config struct {
+	// Dir is the directory the patterns are resolved against. Empty means the
+	// current working directory of the process.
+	Dir string
 	// BuildTags is the list of build tags to pass via the -tags flag.
 	BuildTags []string
 	// Tests indicates whether test files are included in the load.
@@ -31,6 +35,11 @@ type Config struct {
 // Result contains the packages loaded for the requested patterns.
 type Result struct {
 	Packages []*Package
+
+	// Fset is the file set the packages were parsed with; every package in
+	// Packages shares it. Callers need it to resolve a token.Pos into a position
+	// or to evaluate an expression in a package's scope.
+	Fset *token.FileSet
 }
 
 // Load loads Go packages matching the given patterns (e.g. "./...").
@@ -39,19 +48,23 @@ func Load(patterns []string, cfg Config) (*Result, error) {
 		return nil, errors.New("packages: no package patterns")
 	}
 
+	// NeedDeps is deliberately absent: it would parse and type-check every
+	// transitive dependency from source, while the types kanna needs are already
+	// resolved from export data without it. Dropping it more than halves the
+	// load time.
 	mode := packages.NeedName |
 		packages.NeedFiles |
 		packages.NeedCompiledGoFiles |
-		packages.NeedModule |
 		packages.NeedImports |
-		packages.NeedDeps |
 		packages.NeedTypes |
-		packages.NeedTypesInfo |
 		packages.NeedSyntax
 
+	fset := token.NewFileSet()
 	pc := &packages.Config{
 		Mode:  mode,
 		Tests: cfg.Tests,
+		Dir:   cfg.Dir,
+		Fset:  fset,
 	}
 
 	if tags := joinTags(cfg.BuildTags); tags != "" {
@@ -63,7 +76,7 @@ func Load(patterns []string, cfg Config) (*Result, error) {
 		return nil, fmt.Errorf("packages: Load: %w", err)
 	}
 
-	return &Result{Packages: pkgs}, nil
+	return &Result{Packages: pkgs, Fset: fset}, nil
 }
 
 // joinTags concatenates tag values with a single space, dropping empties.
