@@ -35,10 +35,14 @@ clean:
 # Regenerate every example and confirm the result still builds and runs. CI runs
 # this and then checks that the working tree is unchanged, which turns the
 # examples into an end-to-end regression test for the generators.
+#
+# Generation goes through `go generate`, so what runs here is exactly the
+# //go:generate line an example shows its readers. The go.work at the repository
+# root is what lets the tool directive resolve to this checkout.
 .PHONY: examples
-examples: build
+examples:
 	@for ex in $(EXAMPLES); do \
 		echo ">>> regenerate examples/$$ex"; \
-		(cd examples/$$ex && ../../$(BUILD_DIR)/kanna-$$ex ./...) || exit 1; \
+		(cd examples/$$ex && go generate ./...) || exit 1; \
 		(cd examples/$$ex && go vet ./... && go build ./... && go run .) || exit 1; \
 	done
