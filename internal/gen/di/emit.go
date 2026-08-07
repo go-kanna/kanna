@@ -236,11 +236,31 @@ func writeStructLiteral(w io.Writer, p Plan, ns names, leadingBlank bool) {
 	if leadingBlank {
 		fmt.Fprint(w, "\n")
 	}
-	fmt.Fprintf(w, "\treturn &%s{\n", p.Container.StructName)
+
+	// The literal is normally addressed, because the declared return type is
+	// *<StructName> or an interface *<StructName> satisfies. A directive may
+	// instead declare the container's own value type, and then taking its
+	// address would return *<StructName> from a function declared to return
+	// <StructName>.
+	addressOf := "&"
+	if returnsContainerValue(p) {
+		addressOf = ""
+	}
+
+	fmt.Fprintf(w, "\treturn %s%s{\n", addressOf, p.Container.StructName)
 	for _, o := range p.Outputs {
 		fmt.Fprintf(w, "\t\t%s: %s,\n", o.FieldName, ns.steps[o.StepIndex])
 	}
 	fmt.Fprint(w, "\t}")
+}
+
+// returnsContainerValue reports whether the plan's declared return type is the
+// container struct itself rather than a pointer to it or an interface.
+func returnsContainerValue(p Plan) bool {
+	if p.Container.Named == nil || p.ReturnType == nil {
+		return false
+	}
+	return types.Identical(p.ReturnType, p.Container.Named)
 }
 
 // writeMustVariant emits MustNewX, which delegates to NewX and panics on error.
