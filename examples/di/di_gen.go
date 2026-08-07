@@ -17,7 +17,7 @@ func NewGreeterService(env service.Env) service.Greeter {
 }
 
 // NewApp initializes dependencies and constructs App.
-func NewApp(deps *infra.Deps, env service.Env) *App {
+func NewApp(deps infra.Deps, env service.Env) *App {
 	db := deps.DB
 	user := service.NewUser(db, env)
 	notifier := service.NewLogNotifier()

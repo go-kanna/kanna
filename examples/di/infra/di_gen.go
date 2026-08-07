@@ -3,22 +3,22 @@
 package infra
 
 // NewDeps initializes dependencies and constructs Deps.
-func NewDeps() (*Deps, error) {
+func NewDeps() (Deps, error) {
 	config := NewConfig()
 	db, err := NewDB(config)
 	if err != nil {
-		return nil, err
+		return *new(Deps), err
 	}
 	cache := NewCache()
 
-	return &Deps{
+	return Deps{
 		DB:    db,
 		Cache: cache,
 	}, nil
 }
 
 // MustNewDeps initializes dependencies and constructs Deps or panics on failure.
-func MustNewDeps() *Deps {
+func MustNewDeps() Deps {
 	v, err := NewDeps()
 	if err != nil {
 		panic(err)

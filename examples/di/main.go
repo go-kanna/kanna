@@ -32,7 +32,7 @@ import (
 //
 //kanna:container name=NewApp
 type App struct {
-	_ *infra.Deps `di:"embed"`
+	_ infra.Deps  `di:"embed"`
 	_ service.Env `di:"arg"`
 
 	User     service.User     `di:""`
