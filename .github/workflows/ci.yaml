@@ -49,14 +49,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Regenerating every example and finding no change proves the generator
-      # still produces the committed output, end to end.
+      # Regenerating every example and finding no change proves the generators
+      # still produce the committed output, end to end.
       - name: Regenerate examples
-        run: make example
+        run: make examples
 
       - name: Check the examples are up to date
         run: |
-          if ! git diff --exit-code -- example; then
-            echo "::error::example output is stale; run 'make example' and commit the result"
+          if ! git diff --exit-code -- examples; then
+            echo "::error::example output is stale; run 'make examples' and commit the result"
             exit 1
           fi
