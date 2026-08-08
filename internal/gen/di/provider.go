@@ -47,6 +47,7 @@ func providersInPackage(pkg *packages.Package) ([]Provider, []diag.Diag) {
 		}
 	}
 
+	generated := scan.GeneratedFiles(pkg)
 	scope := pkg.Types.Scope()
 
 	var providers []Provider
@@ -66,6 +67,7 @@ func providersInPackage(pkg *packages.Package) ([]Provider, []diag.Diag) {
 			continue
 		}
 
+		pos := positionOf(pkg, fn.Pos())
 		providers = append(providers, Provider{
 			PkgPath:      pkg.PkgPath,
 			PkgName:      pkg.Name,
@@ -73,7 +75,8 @@ func providersInPackage(pkg *packages.Package) ([]Provider, []diag.Diag) {
 			Result:       result,
 			Params:       paramTypes(sig),
 			ReturnsError: returnsError,
-			Pos:          positionOf(pkg, fn.Pos()),
+			Generated:    generated[pos.Filename],
+			Pos:          pos,
 		})
 	}
 

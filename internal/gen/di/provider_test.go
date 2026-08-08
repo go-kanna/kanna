@@ -181,6 +181,15 @@ func NewGeneratedDB() *DB { return nil }
 	if got, want := providerNames(providers), []string{"NewDB", "NewGeneratedDB"}; !slices.Equal(got, want) {
 		t.Errorf("providers = %v, want %v", got, want)
 	}
+
+	// Which file a provider came from decides whether an ambiguity involving it
+	// can be explained, so the flag has to survive the scan.
+	for _, p := range providers {
+		wantGenerated := p.FuncName == "NewGeneratedDB"
+		if p.Generated != wantGenerated {
+			t.Errorf("%s Generated = %v, want %v", p.FuncName, p.Generated, wantGenerated)
+		}
+	}
 }
 
 func TestProviders_SkipsUnexportedNothingSpecial(t *testing.T) {

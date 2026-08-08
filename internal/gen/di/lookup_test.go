@@ -2,6 +2,7 @@ package di_test
 
 import (
 	"go/types"
+	"strings"
 	"testing"
 
 	"github.com/go-kanna/kanna/internal/gen/di"
@@ -114,6 +115,44 @@ func TestFormatCandidates(t *testing.T) {
 	}
 	if got[1] != "- y.B" {
 		t.Errorf("line[1] = %q, want %q", got[1], "- y.B")
+	}
+}
+
+func TestFormatCandidates_MarksProvidersFromAnEarlierRun(t *testing.T) {
+	t.Parallel()
+
+	// A container that resolved on its first generation can stop resolving on
+	// the second, once its own output is scanned back in. The candidate list has
+	// to say so, or the failure is unreadable.
+	handwritten := di.Provider{PkgPath: "x", FuncName: "NewGreeter"}
+	emitted := di.Provider{PkgPath: "x", FuncName: "NewFacade", Generated: true}
+
+	got := di.FormatCandidates([]*di.Provider{&handwritten, &emitted})
+
+	if len(got) != 3 {
+		t.Fatalf("got %d lines, want 3 (two candidates plus the explanation)", len(got))
+	}
+	if strings.Contains(got[0], "earlier run") {
+		t.Errorf("handwritten candidate was marked: %q", got[0])
+	}
+	if !strings.Contains(got[1], "[emitted by an earlier run]") {
+		t.Errorf("generated candidate = %q, want it marked", got[1])
+	}
+	if !strings.Contains(got[2], `di:"with=..."`) {
+		t.Errorf("trailing hint = %q, want it to name the fix", got[2])
+	}
+}
+
+func TestFormatCandidates_NoExplanationWithoutGeneratedCandidates(t *testing.T) {
+	t.Parallel()
+
+	a := di.Provider{PkgPath: "x", FuncName: "A"}
+	b := di.Provider{PkgPath: "y", FuncName: "B"}
+
+	for _, line := range di.FormatCandidates([]*di.Provider{&a, &b}) {
+		if strings.Contains(line, "generated code") {
+			t.Errorf("unexpected explanation line: %q", line)
+		}
 	}
 }
 

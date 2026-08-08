@@ -95,7 +95,15 @@ type Provider struct {
 	Result       types.Type
 	Params       []types.Type
 	ReturnsError bool
-	Pos          token.Position
+
+	// Generated reports whether the function was declared in a file carrying the
+	// generated code marker, meaning an earlier run emitted it. Such a provider
+	// is a legitimate candidate — downstream containers resolve against emitted
+	// constructors on purpose — but when it makes a resolution ambiguous the
+	// diagnostic needs to say where it came from.
+	Generated bool
+
+	Pos token.Position
 }
 
 // Directive captures metadata supplied by a //kanna:container comment.

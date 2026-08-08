@@ -111,14 +111,28 @@ func ProviderName(p *Provider) string {
 
 // FormatCandidates renders a list of providers as bullet lines suitable for use
 // as Diag.Hints when reporting ambiguity.
+//
+// A candidate an earlier run emitted is marked, and a closing line explains what
+// to do about it: without that, a container that suddenly stops resolving after
+// its first successful generation is hard to make sense of.
 func FormatCandidates(ps []*Provider) []string {
-	out := make([]string, 0, len(ps))
+	out := make([]string, 0, len(ps)+1)
+	fromEarlierRun := false
+
 	for _, p := range ps {
 		line := "- " + ProviderName(p)
 		if p.Pos.IsValid() {
 			line += " (" + p.Pos.String() + ")"
 		}
+		if p.Generated {
+			line += " [emitted by an earlier run]"
+			fromEarlierRun = true
+		}
 		out = append(out, line)
+	}
+
+	if fromEarlierRun {
+		out = append(out, `a candidate came from generated code; name the one you want with di:"with=..."`)
 	}
 	return out
 }
