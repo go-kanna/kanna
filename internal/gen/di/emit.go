@@ -37,7 +37,8 @@ func Emit(packageName string, plans []Plan) ([]byte, error) {
 		}
 	}
 
-	im := NewImports(containerPkg)
+	// err and v are declared by every generated body, so no import may claim them.
+	im := NewImports(containerPkg, "err", "v")
 	for _, p := range plans {
 		collectImports(im, p)
 	}

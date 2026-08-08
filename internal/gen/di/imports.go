@@ -22,8 +22,11 @@ type ImportEntry struct {
 }
 
 // NewImports constructs an Imports tracker for an emitted file in containerPkg.
-// Reserved aliases are pre-claimed so the generated source can use them without
-// collision (e.g. "log" when must mode emits log.Fatal).
+//
+// Reserved names are claimed up front so no import can take one. The generated
+// body declares err and v unconditionally, and assignNames keeps step variables
+// clear of import aliases; reserving the same names here closes the other half
+// of that, so neither side can shadow the other.
 func NewImports(containerPkg string, reserved ...string) *Imports {
 	im := &Imports{
 		containerPkg: containerPkg,
