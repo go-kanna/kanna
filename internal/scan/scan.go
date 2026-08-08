@@ -111,7 +111,7 @@ func structsInPackage(pkg *packages.Package) ([]ir.Struct, []diag.Diag) {
 		return nil, append(diags, diag.Errorf(token.Position{}, "package %s: no type information", pkg.PkgPath))
 	}
 
-	generated := generatedFiles(pkg)
+	generated := GeneratedFiles(pkg)
 	docs := docComments(pkg.Syntax)
 	scope := pkg.Types.Scope()
 
@@ -177,9 +177,14 @@ func fieldsOf(pkg *packages.Package, st *types.Struct) []ir.Field {
 	return fields
 }
 
-// generatedFiles returns the set of filenames in pkg that carry the generated
+// GeneratedFiles returns the set of filenames in pkg that carry the generated
 // code marker.
-func generatedFiles(pkg *packages.Package) map[string]bool {
+//
+// Structs skips those files so a generator never reads its own output back as
+// input. A generator that scans something other than structs may instead want to
+// keep them and know which declarations an earlier run produced, which is what
+// this exposes.
+func GeneratedFiles(pkg *packages.Package) map[string]bool {
 	if pkg.Fset == nil {
 		return nil
 	}
