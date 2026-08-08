@@ -54,9 +54,13 @@ jobs:
       - name: Regenerate examples
         run: make examples
 
+      # git diff alone would ignore a generated file that was never committed, so
+      # this asks for the full working-tree status.
       - name: Check the examples are up to date
         run: |
-          if ! git diff --exit-code -- examples; then
+          if [ -n "$(git status --porcelain -- examples)" ]; then
             echo "::error::example output is stale; run 'make examples' and commit the result"
+            git status --porcelain -- examples
+            git diff -- examples
             exit 1
           fi
