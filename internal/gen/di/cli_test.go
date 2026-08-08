@@ -254,6 +254,50 @@ type Container struct {
 	}
 }
 
+func TestCLI_WritesNothingWhenAnotherPackageFails(t *testing.T) {
+	t.Parallel()
+
+	// The resolvable package is visited first, so writing as each package is
+	// rendered would leave it updated while the failing one stays stale.
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"good/good.go": `package good
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type Container struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"bad/bad.go": `package bad
+
+type Missing struct{}
+
+type Container struct {
+	M *Missing ` + "`di:\"\"`" + `
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.Error {
+		t.Fatalf("exit code = %d, want %d", code, exit.Error)
+	}
+	if !strings.Contains(errOut.String(), "no provider for") {
+		t.Errorf("stderr = %q, want the resolution failure", errOut.String())
+	}
+
+	for _, pkg := range []string{"good", "bad"} {
+		if _, err := os.Stat(filepath.Join(dir, pkg, "di_gen.go")); err == nil {
+			t.Errorf("%s/di_gen.go was written even though the run failed", pkg)
+		}
+	}
+}
+
 func TestCLI_ReportsNoContainerFound(t *testing.T) {
 	t.Parallel()
 
@@ -281,6 +325,9 @@ func writeModule(t *testing.T, files map[string]string) string {
 	dir := t.TempDir()
 	for name, content := range files {
 		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("mkdir for %s: %v", name, err)
+		}
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}

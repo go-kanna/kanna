@@ -131,7 +131,14 @@ func (c *CLI) Run(args []string) int {
 	idx := NewIndex(providers)
 	opts := Options{Must: mustFlag}
 
-	failed := false
+	// Render every package before touching the disk. A run that fails partway
+	// through should leave the tree exactly as it found it, rather than updating
+	// the packages it got to first and leaving the rest stale.
+	var (
+		pending []pendingFile
+		failed  bool
+	)
+
 	for _, group := range groupByPackage(containers) {
 		var plans []Plan
 		for _, container := range group.containers {
@@ -155,27 +162,40 @@ func (c *CLI) Run(args []string) int {
 		}
 
 		outDir := filepath.Dir(group.containers[0].Pos.Filename)
-		outPath := filepath.Join(outDir, outputFile)
-		// Generated Go source should be readable like the rest of the package,
-		// matching what gofmt/go generate produce by default.
-		//nolint:gosec // generated source is meant to be world-readable
-		if err := os.WriteFile(outPath, out, 0o644); err != nil {
-			fmt.Fprintln(c.Err, err)
-			failed = true
-			continue
-		}
-
-		if verbose {
-			fmt.Fprintln(c.Out, "generate:", outPath)
-		} else {
-			fmt.Fprintln(c.Out, outPath)
-		}
+		pending = append(pending, pendingFile{
+			path: filepath.Join(outDir, outputFile),
+			data: out,
+		})
 	}
 
 	if failed {
 		return exit.Error
 	}
+
+	for _, f := range pending {
+		// Generated Go source should be readable like the rest of the package,
+		// matching what gofmt/go generate produce by default.
+		//nolint:gosec // generated source is meant to be world-readable
+		if err := os.WriteFile(f.path, f.data, 0o644); err != nil {
+			fmt.Fprintln(c.Err, err)
+			return exit.Error
+		}
+
+		if verbose {
+			fmt.Fprintln(c.Out, "generate:", f.path)
+		} else {
+			fmt.Fprintln(c.Out, f.path)
+		}
+	}
+
 	return exit.OK
+}
+
+// pendingFile is a rendered package waiting to be written once every package has
+// rendered successfully.
+type pendingFile struct {
+	path string
+	data []byte
 }
 
 // containerGroup is the set of containers that live in a single package and will
