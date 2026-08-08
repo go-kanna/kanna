@@ -12,6 +12,9 @@ import (
 	"github.com/go-kanna/kanna/internal/gen/fixture"
 )
 
+// gofakeitModule is the module the generated code calls into.
+const gofakeitModule = "github.com/brianvoe/gofakeit/v7"
+
 // runCLI drives the generator with buffers standing in for the process streams.
 func runCLI(t *testing.T, dir string, args ...string) (int, string, string) {
 	t.Helper()
@@ -89,7 +92,14 @@ func TestRun(t *testing.T) {
 		{
 			name: "source matching several packages",
 			args: []string{"-source", "./testdata/...", "-destination", "./fixture"},
-			want: exit.Error,
+			want: exit.Usage,
+		},
+		{
+			// The output would be valid Go that no compiler accepts, so it has
+			// to be refused before anything is written.
+			name: "source naming files rather than a package",
+			args: []string{"-source", "./testdata/model/model.go", "-destination", "./fixture"},
+			want: exit.Usage,
 		},
 	}
 
@@ -177,20 +187,34 @@ func TestRunGenerate(t *testing.T) {
 func TestRunGenerateTidyNote(t *testing.T) {
 	t.Parallel()
 
+	// The source here is kanna's own testdata, so a destination module that is
+	// not kanna needs a require for it as well as for gofakeit.
+	const sourceModule = "github.com/go-kanna/kanna"
+
 	tests := []struct {
-		name     string
-		gomod    string
-		wantNote bool
+		name    string
+		gomod   string
+		wantIn  []string
+		wantOut []string
 	}{
 		{
-			name:     "gofakeit missing from the destination module",
-			gomod:    "module example.com/consumer\n\ngo 1.25\n",
-			wantNote: true,
+			name:   "neither is required",
+			gomod:  "module example.com/consumer\n\ngo 1.25\n",
+			wantIn: []string{gofakeitModule, sourceModule},
 		},
 		{
-			name:     "gofakeit already required",
-			gomod:    "module example.com/consumer\n\ngo 1.25\n\nrequire github.com/brianvoe/gofakeit/v7 v7.15.0\n",
-			wantNote: false,
+			name:    "gofakeit already required",
+			gomod:   "module example.com/consumer\n\ngo 1.25\n\nrequire " + gofakeitModule + " v7.15.0\n",
+			wantIn:  []string{sourceModule},
+			wantOut: []string{gofakeitModule},
+		},
+		{
+			// A require covers every package under it, not just the module path
+			// itself, so the source package resolves through it.
+			name: "both required",
+			gomod: "module example.com/consumer\n\ngo 1.25\n\nrequire (\n\t" +
+				gofakeitModule + " v7.15.0\n\t" + sourceModule + " v0.1.0\n)\n",
+			wantOut: []string{"go mod tidy"},
 		},
 	}
 
@@ -210,10 +234,38 @@ func TestRunGenerateTidyNote(t *testing.T) {
 				t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 			}
 
-			if got := strings.Contains(stderr, "go mod tidy"); got != tt.wantNote {
-				t.Errorf("go mod tidy note printed = %t, want %t\nstderr: %s", got, tt.wantNote, stderr)
+			for _, want := range tt.wantIn {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("the note does not mention %s: %s", want, stderr)
+				}
+			}
+
+			for _, unwanted := range tt.wantOut {
+				if strings.Contains(stderr, unwanted) {
+					t.Errorf("the note mentions %s, which is already available: %s", unwanted, stderr)
+				}
 			}
 		})
+	}
+}
+
+// A destination inside the source's own module needs no require for it.
+func TestRunGenerateTidyNoteSameModule(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":         "module example.com/consumer\n\ngo 1.25\n",
+		"model/model.go": "package model\n\ntype Employee struct {\n\tName string\n}\n",
+	})
+
+	code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	if strings.Contains(stderr, "example.com/consumer") {
+		t.Errorf("the note asks for a require on the destination's own module: %s", stderr)
 	}
 }
 
@@ -338,19 +390,12 @@ func TestRunGenerateSameDirAsSourceViaSymlink(t *testing.T) {
 	}
 }
 
-// TestRunGenerateRelativeDestination covers a -destination that resolves to the
-// working directory, the shape a //go:generate directive sitting next to the
-// fixtures produces. Dir stands in for that working directory.
-func TestRunGenerateRelativeDestination(t *testing.T) {
-	t.Parallel()
+// writeModule lays out a throwaway module under dir, for runs that need the
+// source and destination to be relative to a working directory.
+func writeModule(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
 
-	dir := t.TempDir()
-
-	for name, body := range map[string]string{
-		"go.mod":              "module example.com/consumer\n\ngo 1.25\n",
-		"employee_fixture.go": "package fixture\n",
-		"model/model.go":      "package model\n\ntype Employee struct {\n\tName string\n}\n",
-	} {
+	for name, body := range files {
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatalf("mkdir: %v", err)
@@ -360,6 +405,20 @@ func TestRunGenerateRelativeDestination(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
+}
+
+// TestRunGenerateRelativeDestination covers a -destination that resolves to the
+// working directory, the shape a //go:generate directive sitting next to the
+// fixtures produces. Dir stands in for that working directory.
+func TestRunGenerateRelativeDestination(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":              "module example.com/consumer\n\ngo 1.25\n",
+		"employee_fixture.go": "package fixture\n",
+		"model/model.go":      "package model\n\ntype Employee struct {\n\tName string\n}\n",
+	})
 
 	code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", ".")
 	if code != exit.OK {
@@ -370,6 +429,145 @@ func TestRunGenerateRelativeDestination(t *testing.T) {
 	// named after the module's root.
 	if got := readGenerated(t, dir); !strings.Contains(got, "package fixture") {
 		t.Errorf("generated file does not declare package fixture:\n%s", got)
+	}
+}
+
+// A flag value that reads "help" is a value, not the subcommand. Treating it as
+// one would exit 0 having generated nothing.
+func TestRunFlagValueNamedHelp(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":         "module example.com/consumer\n\ngo 1.25\n",
+		"model/model.go": "package model\n\ntype Employee struct {\n\tName string\n}\n",
+	})
+
+	code, stdout, stderr := runCLI(t, dir, "-source", "./model", "-destination", "help")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	if strings.Contains(stdout, "Usage:") {
+		t.Fatalf("printed usage instead of generating: %q", stdout)
+	}
+
+	if got := readGenerated(t, filepath.Join(dir, "help")); !strings.Contains(got, "func Employee(") {
+		t.Errorf("nothing was generated into the destination:\n%s", got)
+	}
+}
+
+// A package main source produces a file that is valid Go but cannot compile,
+// because "is a program, not an importable package" only surfaces at build time.
+func TestRunSourceIsPackageMain(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":      "module example.com/consumer\n\ngo 1.25\n",
+		"app/main.go": "package main\n\ntype Widget struct {\n\tName string\n}\n\nfunc main() {}\n",
+	})
+
+	code, _, stderr := runCLI(t, dir, "-source", "./app", "-destination", "./fixture")
+	if code != exit.Usage {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.Usage, stderr)
+	}
+
+	if !strings.Contains(stderr, "package main") {
+		t.Errorf("stderr does not explain the problem: %s", stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "fixture", "fixture_gen.go")); !os.IsNotExist(err) {
+		t.Error("a file was written for a source that cannot be imported")
+	}
+}
+
+// The destination is allowed to hold hand-written files, so a name it already
+// declares would make the generated package stop compiling.
+func TestRunDestinationClash(t *testing.T) {
+	t.Parallel()
+
+	const model = "package model\n\ntype Employee struct {\n\tCode string `fake:\"???-####\"`\n}\n"
+
+	tests := []struct {
+		name     string
+		helper   string
+		wantCode int
+		wantIn   string
+	}{
+		{
+			name:     "a fixture function",
+			helper:   "package fixture\n\nfunc Employee() string { return \"\" }\n",
+			wantCode: exit.Error,
+			wantIn:   "would redeclare Employee",
+		},
+		{
+			name:     "the template helper",
+			helper:   "package fixture\n\nfunc mustGenerate(t string) string { return t }\n",
+			wantCode: exit.Error,
+			wantIn:   "would redeclare mustGenerate",
+		},
+		{
+			// An external test package shares the directory but not the
+			// namespace, so it cannot clash.
+			name:     "an external test package",
+			helper:   "package fixture_test\n\nfunc Employee() string { return \"\" }\n",
+			wantCode: exit.OK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			helper := "fixture/helper.go"
+			if strings.HasPrefix(tt.helper, "package fixture_test") {
+				helper = "fixture/helper_test.go"
+			}
+
+			dir := t.TempDir()
+			writeModule(t, dir, map[string]string{
+				"go.mod":         "module example.com/consumer\n\ngo 1.25\n",
+				"model/model.go": model,
+				helper:           tt.helper,
+			})
+
+			code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture")
+			if code != tt.wantCode {
+				t.Fatalf("Run() = %d, want %d\nstderr: %s", code, tt.wantCode, stderr)
+			}
+
+			generated := filepath.Join(dir, "fixture", "fixture_gen.go")
+
+			if tt.wantCode != exit.OK {
+				if !strings.Contains(stderr, tt.wantIn) {
+					t.Errorf("stderr does not contain %q: %s", tt.wantIn, stderr)
+				}
+				if _, err := os.Stat(generated); !os.IsNotExist(err) {
+					t.Error("a file was written despite the clash")
+				}
+
+				return
+			}
+
+			if _, err := os.Stat(generated); err != nil {
+				t.Errorf("nothing was generated: %v", err)
+			}
+		})
+	}
+}
+
+// The subcommand form still works, but only in front.
+func TestRunHelpSubcommand(t *testing.T) {
+	t.Parallel()
+
+	code, stdout, stderr := runCLI(t, "", "help")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	if !strings.Contains(stdout, "Usage:") {
+		t.Errorf("stdout does not carry the usage: %q", stdout)
 	}
 }
 

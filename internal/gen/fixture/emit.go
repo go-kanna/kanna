@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/format"
 	"slices"
-	"strings"
 )
 
 // gofakeitImport is the import path of the faker the generated code calls.
@@ -19,8 +18,8 @@ type EmitParams struct {
 	SourceName string
 	// SourcePath is the source package import path.
 	SourcePath string
-	// Imports holds the import paths the fixture expressions need beyond
-	// gofakeit.
+	// Imports holds every import path the fixture expressions need, as Plans
+	// reports them.
 	Imports []string
 	// Plans holds the fixture bodies in output order.
 	Plans []Plan
@@ -54,7 +53,7 @@ func Emit(p EmitParams) ([]byte, error) {
 		writePlan(&buf, p.SourceName, pl)
 	}
 
-	if usesMustGenerate(p.Plans) {
+	if needsHelper(p.Plans) {
 		buf.WriteString(generateHelper)
 	}
 
@@ -71,10 +70,6 @@ func Emit(p EmitParams) ([]byte, error) {
 // to spot.
 func writeImports(buf *bytes.Buffer, p EmitParams) {
 	deps := slices.Clone(p.Imports)
-	if needsGofakeit(p.Plans) {
-		deps = append(deps, gofakeitImport)
-	}
-
 	slices.Sort(deps)
 
 	buf.WriteString("\nimport (\n")
@@ -90,23 +85,12 @@ func writeImports(buf *bytes.Buffer, p EmitParams) {
 	fmt.Fprintf(buf, "\t%q\n)\n", p.SourcePath)
 }
 
-func needsGofakeit(plans []Plan) bool {
+// needsHelper reports whether any expression calls mustGenerate, which then has
+// to be defined in the same file.
+func needsHelper(plans []Plan) bool {
 	for _, pl := range plans {
 		for _, f := range pl.Fields {
-			// mustGenerate calls gofakeit.Generate inside the helper.
-			if strings.Contains(f.Expr, "gofakeit.") || strings.Contains(f.Expr, "mustGenerate(") {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-func usesMustGenerate(plans []Plan) bool {
-	for _, pl := range plans {
-		for _, f := range pl.Fields {
-			if strings.Contains(f.Expr, "mustGenerate(") {
+			if f.NeedsHelper {
 				return true
 			}
 		}

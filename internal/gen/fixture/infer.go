@@ -15,6 +15,10 @@ import (
 type Assignment struct {
 	Name string
 	Expr string
+
+	// NeedsHelper reports whether Expr calls the mustGenerate helper, which the
+	// emitter then has to define in the same file.
+	NeedsHelper bool
 }
 
 // Plan is the resolved body of one fixture function. Fields holds only the
@@ -24,11 +28,19 @@ type Plan struct {
 	Fields []Assignment
 }
 
-// value is an inferred field expression together with the import path it
-// needs beyond gofakeit. An empty expr leaves the field at its zero value.
+// value is an inferred field expression together with what it takes to compile:
+// the packages it imports, and whether it calls the helper the emitter writes
+// into the file. An empty expr leaves the field at its zero value.
 type value struct {
-	expr string
-	pkg  string
+	expr        string
+	pkgs        []string
+	needsHelper bool
+}
+
+// faker builds a value for an expression that calls gofakeit and nothing else,
+// which is most of them.
+func faker(expr string) value {
+	return value{expr: expr, pkgs: []string{gofakeitImport}}
 }
 
 // inferrer carries the source package identity needed to resolve
@@ -43,8 +55,9 @@ type inferrer struct {
 // Plans computes the field expressions for each target. pkgPath and pkgName
 // identify the source package, whose name qualifies the emitted types. targets
 // must already be the set that gets a fixture function; references to types
-// outside that set fall back to zero values. The second return value holds
-// the import paths the expressions need beyond gofakeit, sorted.
+// outside that set fall back to zero values. The second return value holds every
+// import path the expressions need, sorted, including gofakeit when some
+// expression calls it.
 func Plans(targets []Target, pkgPath, pkgName string) ([]Plan, []string) {
 	names := make(map[string]bool, len(targets))
 	for _, tg := range targets {
@@ -66,11 +79,15 @@ func Plans(targets []Target, pkgPath, pkgName string) ([]Plan, []string) {
 				continue
 			}
 
-			if v.pkg != "" {
-				imports[v.pkg] = true
+			for _, pkg := range v.pkgs {
+				imports[pkg] = true
 			}
 
-			p.Fields = append(p.Fields, Assignment{Name: f.Name, Expr: v.expr})
+			p.Fields = append(p.Fields, Assignment{
+				Name:        f.Name,
+				Expr:        v.expr,
+				NeedsHelper: v.needsHelper,
+			})
 		}
 
 		plans = append(plans, p)
@@ -92,7 +109,7 @@ func (inf inferrer) fieldExpr(f ir.Field, owner string) value {
 	}
 
 	if expr, ok := nameExpr(f.Name, typ); ok {
-		return value{expr: expr}
+		return faker(expr)
 	}
 
 	if name, ok := inf.fixtureRef(typ); ok {
@@ -113,9 +130,15 @@ func (inf inferrer) fieldExpr(f ir.Field, owner string) value {
 // driven by gofakeit so a single gofakeit.Seed still makes fixtures
 // reproducible.
 var externalValues = map[string]value{
-	"time.Time":                   {expr: "gofakeit.Date()"},
-	"github.com/google/uuid.UUID": {expr: "uuid.MustParse(gofakeit.UUID())", pkg: "github.com/google/uuid"},
+	"time.Time": faker("gofakeit.Date()"),
+	"github.com/google/uuid.UUID": {
+		expr: "uuid.MustParse(gofakeit.UUID())",
+		pkgs: []string{gofakeitImport, uuidImport},
+	},
 }
+
+// uuidImport is the module the UUID rule above emits a call into.
+const uuidImport = "github.com/google/uuid"
 
 // externalTemplates maps a gofakeit template to the external type it fills, so
 // that an explicit tag resolves to the same value the type rule would pick.
@@ -226,17 +249,20 @@ func (inf inferrer) tagExpr(tag string, typ types.Type) value {
 	}
 
 	if expr, ok := stringTagCalls[tag]; ok && b.Kind() == types.String {
-		return value{expr: qualify(expr, qualifier)}
+		return faker(qualify(expr, qualifier))
 	}
 
 	if expr, ok := inf.paramTagExpr(tag, b, qualifier); ok {
-		return value{expr: expr}
+		return faker(expr)
 	}
 
 	if b.Kind() == types.String {
 		// mustGenerate is a helper emitted into the generated file; the
 		// two-value gofakeit.Generate cannot be called in a composite literal.
-		return value{expr: qualify("mustGenerate("+strconv.Quote(tag)+")", qualifier)}
+		v := faker(qualify("mustGenerate("+strconv.Quote(tag)+")", qualifier))
+		v.needsHelper = true
+
+		return v
 	}
 
 	return value{}
@@ -273,6 +299,11 @@ type paramCall struct {
 }
 
 // paramCalls maps a parameterized template name to a typed call.
+//
+// A template only belongs here when calling the function directly is at least as
+// good as routing it through gofakeit.Generate. {sentence:n} is the counterexample
+// and is deliberately absent: gofakeit.Sentence ignores its word count and is
+// marked deprecated, while Generate still honors it.
 var paramCalls = map[string]paramCall{
 	"number":       {fn: "gofakeit.Number", args: []argSpec{intArg, intArg}, result: types.Int},
 	"intrange":     {fn: "gofakeit.IntRange", args: []argSpec{intArg, intArg}, result: types.Int},
@@ -280,7 +311,6 @@ var paramCalls = map[string]paramCall{
 	"float32range": {fn: "gofakeit.Float32Range", args: []argSpec{float32Arg, float32Arg}, result: types.Float32},
 	"float64range": {fn: "gofakeit.Float64Range", args: []argSpec{float64Arg, float64Arg}, result: types.Float64},
 	"price":        {fn: "gofakeit.Price", args: []argSpec{float64Arg, float64Arg}, result: types.Float64},
-	"sentence":     {fn: "gofakeit.Sentence", args: []argSpec{intArg}, result: types.String},
 }
 
 // paramTagExpr resolves a parameterized template like {number:1,10}. It only
@@ -312,10 +342,11 @@ func (inf inferrer) paramTagExpr(tag string, b *types.Basic, qualifier string) (
 		return "", false
 	}
 
-	// A numeric result also has to fit the field's kind, so that the
-	// conversion never wraps the declared range into garbage (e.g.,
-	// {intrange:-5,5} on a uint8 field is rejected, not wrapped).
-	fieldSpec, checkField := argSpec{}, false
+	// A numeric result also has to fit the field's kind, so that the conversion
+	// never wraps the declared range into garbage (e.g., {intrange:-5,5} on a
+	// uint8 field is rejected, not wrapped). A string result converts to nothing,
+	// so there is no field constraint to add.
+	var fieldSpecs []argSpec
 
 	if call.result != types.String {
 		fs, ok := numericSpec(b.Kind())
@@ -323,7 +354,7 @@ func (inf inferrer) paramTagExpr(tag string, b *types.Basic, qualifier string) (
 			return "", false
 		}
 
-		fieldSpec, checkField = fs, true
+		fieldSpecs = append(fieldSpecs, fs)
 	}
 
 	for i, arg := range args {
@@ -332,8 +363,10 @@ func (inf inferrer) paramTagExpr(tag string, b *types.Basic, qualifier string) (
 			return "", false
 		}
 
-		if checkField && !validArg(arg, fieldSpec) {
-			return "", false
+		for _, spec := range fieldSpecs {
+			if !validArg(arg, spec) {
+				return "", false
+			}
 		}
 
 		args[i] = arg
@@ -466,7 +499,12 @@ func typeExpr(typ types.Type) value {
 		return v
 	}
 
-	return value{expr: basicExpr(typ)}
+	expr := basicExpr(typ)
+	if expr == "" {
+		return value{}
+	}
+
+	return faker(expr)
 }
 
 // basicExpr returns the gofakeit call matching a basic type.

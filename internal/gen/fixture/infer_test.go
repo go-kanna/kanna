@@ -116,7 +116,14 @@ func TestTagExpr(t *testing.T) {
 			want: "",
 		},
 		{name: "float args on an int field", tag: "{price:1.5,2.5}", typ: types.Typ[types.Int], want: ""},
-		{name: "sentence on string", tag: "{sentence:5}", typ: types.Typ[types.String], want: "gofakeit.Sentence(5)"},
+		{
+			// gofakeit.Sentence ignores its word count and is deprecated, so the
+			// template goes through Generate, which still honors it.
+			name: "sentence on string goes through generate",
+			tag:  "{sentence:5}",
+			typ:  types.Typ[types.String],
+			want: `mustGenerate("{sentence:5}")`,
+		},
 		{name: "sentence on int does not convert", tag: "{sentence:5}", typ: types.Typ[types.Int], want: ""},
 		{
 			name: "number on named int converts through the named type",
@@ -294,7 +301,18 @@ func TestPlans(t *testing.T) {
 		t.Errorf("Plans() = %+v, want %+v", got, want)
 	}
 
-	wantImports := []string{"github.com/google/uuid"}
+	// Only a template fallback needs the emitted helper.
+	for _, pl := range got {
+		for _, f := range pl.Fields {
+			if f.NeedsHelper {
+				t.Errorf("%s.%s asked for the helper, want none", pl.Name, f.Name)
+			}
+		}
+	}
+
+	// gofakeit is reported like any other import rather than assumed by the
+	// emitter, so a run whose expressions never call it does not import it.
+	wantImports := []string{"github.com/brianvoe/gofakeit/v7", "github.com/google/uuid"}
 	if !reflect.DeepEqual(imports, wantImports) {
 		t.Errorf("Plans() imports = %v, want %v", imports, wantImports)
 	}

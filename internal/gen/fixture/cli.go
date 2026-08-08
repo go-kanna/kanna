@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
@@ -26,11 +27,8 @@ import (
 // destination directory.
 const defaultOutputFile = "fixture_gen.go"
 
-// Config holds the options for a single generation run.
-//
-// Each field corresponds to exactly one flag. Keeping that correspondence is
-// what lets the same run be described either by flags or by a kanna.yaml entry
-// without one of them growing a setting the other cannot express.
+// Config holds the options for a single generation run. Each field corresponds
+// to exactly one flag, so a run is described entirely by what was typed.
 type Config struct {
 	Source      string
 	Destination string
@@ -65,23 +63,25 @@ func NewCLI(version string) CLI {
 // generate, write errors), Usage when the invocation itself is wrong (bad flags,
 // a destination naming the source package).
 func (c CLI) Run(args []string) int {
-	for _, raw := range args {
-		switch raw {
-		case "--version":
-			fmt.Fprintln(c.Out, c.Version)
-			return exit.OK
-		case "-h", "--help", "help":
+	// Only a leading "help" is the subcommand. Scanning every argument for it
+	// would let a flag value named "help" turn the run into a silent no-op.
+	if len(args) > 0 && args[0] == "help" {
+		printUsage(c.Out)
+		return exit.OK
+	}
+
+	cfg, showVersion, err := parseFlags(args, c.Err)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
 			printUsage(c.Out)
 			return exit.OK
 		}
+		return exit.Usage
 	}
 
-	cfg, err := parseFlags(args, c.Err)
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exit.OK
-		}
-		return exit.Usage
+	if showVersion {
+		fmt.Fprintln(c.Out, c.Version)
+		return exit.OK
 	}
 
 	return c.generate(cfg)
@@ -114,9 +114,14 @@ func (c CLI) generate(cfg Config) int {
 	pkgs := scan.DedupePackages(res.Packages)
 	if len(pkgs) != 1 {
 		fmt.Fprintf(c.Err, "-source must match exactly one package, %s matched %d\n", cfg.Source, len(pkgs))
-		return exit.Error
+		return exit.Usage
 	}
 	pkg := pkgs[0]
+
+	if err := importable(pkg); err != nil {
+		fmt.Fprintln(c.Err, err)
+		return exit.Usage
+	}
 
 	structs, ds := scan.Structs(res.Packages)
 	c.printDiags(ds)
@@ -145,6 +150,13 @@ func (c CLI) generate(cfg Config) int {
 	}
 
 	plans, imports := Plans(kept, pkg.PkgPath, pkg.Name)
+
+	// The destination is meant to hold hand-written files too, so what is
+	// already there decides whether this output can compile.
+	if ds := clashes(declaredNames(absDest, pkgName), plans); len(ds) > 0 {
+		c.printDiags(ds)
+		return exit.Error
+	}
 
 	out, err := Emit(EmitParams{
 		PackageName: pkgName,
@@ -176,11 +188,31 @@ func (c CLI) generate(cfg Config) int {
 
 	fmt.Fprintln(c.Out, path)
 
-	if missing := missingRequires(out, imports, absDest); len(missing) > 0 {
+	if missing := missingRequires(out, imports, pkg.PkgPath, absDest); len(missing) > 0 {
 		fmt.Fprintf(c.Err, "note: generated code imports %s; run 'go mod tidy'\n", strings.Join(missing, ", "))
 	}
 
 	return exit.OK
+}
+
+// importable reports why the generated code could not import pkg, or nil when it
+// can.
+//
+// The check has to happen here rather than at the point of writing, because the
+// output is valid Go either way: it is the import that a compiler rejects, long
+// after this process has exited successfully.
+func importable(pkg *packages.Package) error {
+	// go/packages gives file patterns this synthetic path, which no other
+	// package can import.
+	if pkg.PkgPath == "command-line-arguments" {
+		return errors.New("-source must name a package, not individual files")
+	}
+
+	if pkg.Name == "main" {
+		return fmt.Errorf("-source names package main (%s), which the generated code cannot import", pkg.PkgPath)
+	}
+
+	return nil
 }
 
 // applyExcludes drops the named targets, warning about any name that matched
@@ -283,10 +315,102 @@ func declaredPackage(dir string) string {
 	return ""
 }
 
-// missingRequires returns the third-party imports of the generated code that
-// the destination module's go.mod does not require yet, sorted. It is
-// best-effort: an unknown module layout just suppresses the note.
-func missingRequires(out []byte, imports []string, destDir string) []string {
+// declaredNames returns the top-level identifiers the destination package
+// already declares, each mapped to the position it is declared at.
+//
+// Only files declaring pkgName are read: an external test package shares the
+// directory but not the namespace, so nothing it declares can clash. The
+// generated file is skipped as well, since it is what gets replaced.
+func declaredNames(dir, pkgName string) map[string]token.Position {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	fset := token.NewFileSet()
+	names := make(map[string]token.Position)
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == defaultOutputFile || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil || f.Name.Name != pkgName {
+			continue
+		}
+
+		for _, decl := range f.Decls {
+			collectNames(fset, decl, names)
+		}
+	}
+
+	return names
+}
+
+func collectNames(fset *token.FileSet, decl ast.Decl, into map[string]token.Position) {
+	switch d := decl.(type) {
+	case *ast.FuncDecl:
+		// A method belongs to its receiver's namespace, not the package's.
+		if d.Recv == nil {
+			into[d.Name.Name] = fset.Position(d.Name.Pos())
+		}
+	case *ast.GenDecl:
+		for _, spec := range d.Specs {
+			switch s := spec.(type) {
+			case *ast.TypeSpec:
+				into[s.Name.Name] = fset.Position(s.Name.Pos())
+			case *ast.ValueSpec:
+				for _, id := range s.Names {
+					into[id.Name] = fset.Position(id.Pos())
+				}
+			}
+		}
+	}
+}
+
+// clashes reports every identifier the generated file would redeclare.
+//
+// Writing the file anyway would leave a package that no longer compiles, and the
+// error would name the generated file rather than the collision, so this is
+// refused up front.
+func clashes(declared map[string]token.Position, plans []Plan) []diag.Diag {
+	if len(declared) == 0 {
+		return nil
+	}
+
+	emitted := make([]string, 0, len(plans)+1)
+	for _, p := range plans {
+		emitted = append(emitted, p.Name)
+	}
+	if needsHelper(plans) {
+		emitted = append(emitted, "mustGenerate")
+	}
+
+	var diags []diag.Diag
+	for _, name := range emitted {
+		pos, ok := declared[name]
+		if !ok {
+			continue
+		}
+
+		diags = append(diags, diag.Errorf(pos,
+			"the generated file would redeclare %s", name).
+			WithHints("rename this declaration, or generate into a directory of its own"))
+	}
+
+	return diags
+}
+
+// missingRequires returns the imports of the generated code that the destination
+// module's go.mod does not require yet, sorted. It is best-effort: an unknown
+// module layout just suppresses the note.
+//
+// sourcePath is a candidate like any other. When the destination sits in a
+// different module from the source — the case where the note is worth anything —
+// it is the require most likely to be missing.
+func missingRequires(out []byte, imports []string, sourcePath, destDir string) []string {
 	gomod := findGoMod(destDir)
 	if gomod == "" {
 		return nil
@@ -303,20 +427,26 @@ func missingRequires(out []byte, imports []string, destDir string) []string {
 		return nil
 	}
 
-	required := make(map[string]bool, len(f.Require))
+	// The destination's own module counts as available, so a source package that
+	// lives alongside the fixtures needs no require at all.
+	mods := make([]string, 0, len(f.Require)+1)
+	if f.Module != nil {
+		mods = append(mods, f.Module.Mod.Path)
+	}
 	for _, r := range f.Require {
-		required[r.Mod.Path] = true
+		mods = append(mods, r.Mod.Path)
 	}
 
-	candidates := append(slices.Clone(imports), gofakeitImport)
+	candidates := append(slices.Clone(imports), sourcePath)
 	slices.Sort(candidates)
+	candidates = slices.Compact(candidates)
 
 	var missing []string
 
 	for _, path := range candidates {
-		// gofakeit is a candidate whether or not the output uses it, so match
-		// against the import line the generator actually wrote.
-		if required[path] || !bytes.Contains(out, []byte(strconv.Quote(path))) {
+		// Match against the import line actually written, so a candidate the
+		// output ended up not needing is never reported.
+		if provided(mods, path) || !bytes.Contains(out, []byte(strconv.Quote(path))) {
 			continue
 		}
 
@@ -324,6 +454,22 @@ func missingRequires(out []byte, imports []string, destDir string) []string {
 	}
 
 	return missing
+}
+
+// provided reports whether one of mods supplies importPath.
+//
+// A module path is a prefix of every package it provides, which is as close as
+// this gets without resolving the module graph. Erring toward "provided" is the
+// right direction: a note that fails to appear is a smaller cost than one
+// telling the reader to require a module they already have.
+func provided(mods []string, importPath string) bool {
+	for _, mod := range mods {
+		if importPath == mod || strings.HasPrefix(importPath, mod+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // resolvePath resolves symlinks best-effort, falling back to the input when
@@ -360,44 +506,57 @@ func findGoMod(dir string) string {
 	}
 }
 
-func parseFlags(args []string, stderr io.Writer) (Config, error) {
+// parseFlags reads args into a Config. The middle return value reports whether
+// --version was asked for, which suppresses the checks on the other flags.
+func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 	fs := flag.NewFlagSet("kanna-fixture", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		printUsage(stderr)
-	}
+
+	// The caller prints the usage, because only it knows whether this is a
+	// request for help, which belongs on stdout, or a mistake, which does not.
+	fs.Usage = func() {}
 
 	var (
-		cfg     Config
-		exclude string
+		cfg         Config
+		exclude     string
+		showVersion bool
 	)
 
 	fs.StringVar(&cfg.Source, "source", "", "source package to scan (relative path or import path)")
 	fs.StringVar(&cfg.Destination, "destination", "", "output directory for the generated file")
-	fs.StringVar(&cfg.Package, "package", "", "generated package name (defaults to the destination directory name)")
+	fs.StringVar(&cfg.Package, "package", "", "generated package name (defaults to what the destination declares)")
 	fs.StringVar(&exclude, "exclude", "", "comma-separated type names to exclude (e.g., -exclude Foo,Bar)")
+	fs.BoolVar(&showVersion, "version", false, "print version")
 
 	if err := fs.Parse(args); err != nil {
-		return Config{}, fmt.Errorf("parse flags: %w", err)
+		if !errors.Is(err, flag.ErrHelp) {
+			printUsage(stderr)
+		}
+
+		return Config{}, false, fmt.Errorf("parse flags: %w", err)
+	}
+
+	if showVersion {
+		return cfg, true, nil
 	}
 
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "unexpected argument %q\n", fs.Arg(0))
-		fs.Usage()
+		printUsage(stderr)
 
-		return Config{}, errors.New("unexpected argument")
+		return Config{}, false, errors.New("unexpected argument")
 	}
 
 	if cfg.Source == "" || cfg.Destination == "" {
 		fmt.Fprintln(stderr, "-source and -destination are required")
-		fs.Usage()
+		printUsage(stderr)
 
-		return Config{}, errors.New("missing required flags")
+		return Config{}, false, errors.New("missing required flags")
 	}
 
 	cfg.Excludes = splitExcludes(exclude)
 
-	return cfg, nil
+	return cfg, false, nil
 }
 
 func splitExcludes(s string) []string {
