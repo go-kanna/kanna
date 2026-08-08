@@ -179,6 +179,51 @@ type Container struct {
 	}
 }
 
+func TestCLI_RegeneratesOverItsOwnOutput(t *testing.T) {
+	t.Parallel()
+
+	// A container that returns an interface turns its own constructors into
+	// providers of that interface on the next run. Only running the CLI twice
+	// catches it, which is why this test exists rather than a unit test.
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type Greeter interface{ Greet() string }
+
+type impl struct{}
+
+func (impl) Greet() string { return "hi" }
+
+func NewImpl() Greeter { return impl{} }
+
+//kanna:container returns=Greeter
+type Facade struct {
+	inner Greeter ` + "`di:\"\"`" + `
+}
+
+func (f *Facade) Greet() string { return f.inner.Greet() }
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"--must", "./..."}); code != exit.OK {
+		t.Fatalf("first run: exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+	first := readFile(t, filepath.Join(dir, "di_gen.go"))
+
+	errOut.Reset()
+	if code := c.Run([]string{"--must", "./..."}); code != exit.OK {
+		t.Fatalf("second run: exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+
+	if second := readFile(t, filepath.Join(dir, "di_gen.go")); second != first {
+		t.Errorf("output changed on the second run:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
 func TestCLI_ReportsMissingProvider(t *testing.T) {
 	t.Parallel()
 

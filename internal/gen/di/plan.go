@@ -198,42 +198,33 @@ func (r *resolver) resolveField(f Field) (int, []diag.Diag) {
 	return r.resolveByType(f.Type, f.Pos, "field "+f.Name)
 }
 
-// excludeSelfProvider drops the container's own previously generated constructor
-// from the candidate list so a di:"returns" field does not pick itself up via
-// type lookup. Callers that name a provider explicitly via di:"with=..." are not
+// excludeSelfProvider drops this container's own constructors from the candidate
+// list, so a di:"returns" field does not resolve to the very thing being
+// generated. Callers that name a provider explicitly via di:"with=..." are not
 // affected.
 //
-// The common case is that the self-provider is not in the candidate list at all
-// (most fields request types unrelated to the container's own return type), so
-// the function returns the original slice without allocating when there is
-// nothing to exclude.
+// Both New* and its Must* variant are emitted for the same container and return
+// the same type, so both have to go: leaving MustNew* in makes the second run
+// over an unchanged tree fail with a spurious ambiguity.
 func (r *resolver) excludeSelfProvider(candidates []*Provider) []*Provider {
 	if r.selfFuncName == "" {
 		return candidates
 	}
-	selfIdx := -1
-	for i, c := range candidates {
-		if c.PkgPath == r.selfPkgPath && c.FuncName == r.selfFuncName {
-			selfIdx = i
-			break
+
+	kept := make([]*Provider, 0, len(candidates))
+	for _, c := range candidates {
+		if c.PkgPath == r.selfPkgPath && r.isOwnConstructor(c.FuncName) {
+			continue
 		}
+		kept = append(kept, c)
 	}
-	if selfIdx < 0 {
-		return candidates
-	}
-	// Boundary cases — the self-provider sits at one end of the slice, so a
-	// sub-slice is enough and no allocation is needed. This covers the very
-	// common case of a single matching candidate.
-	if selfIdx == 0 {
-		return candidates[1:]
-	}
-	if selfIdx == len(candidates)-1 {
-		return candidates[:selfIdx]
-	}
-	kept := make([]*Provider, 0, len(candidates)-1)
-	kept = append(kept, candidates[:selfIdx]...)
-	kept = append(kept, candidates[selfIdx+1:]...)
 	return kept
+}
+
+// isOwnConstructor reports whether name is one of the constructors this
+// container generates.
+func (r *resolver) isOwnConstructor(name string) bool {
+	return name == r.selfFuncName || name == "Must"+r.selfFuncName
 }
 
 func (r *resolver) resolveByType(want types.Type, pos token.Position, parent string) (int, []diag.Diag) {
