@@ -15,7 +15,7 @@ func TestCLI_Version(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Version: "v0.2.0"}
+	c := di.CLI{Out: &out, Err: &errOut, Version: "v0.2.0"}
 
 	if code := c.Run([]string{"--version"}); code != exit.OK {
 		t.Errorf("exit code = %d, want %d", code, exit.OK)
@@ -33,7 +33,7 @@ func TestCLI_Help(t *testing.T) {
 			t.Parallel()
 
 			var out, errOut bytes.Buffer
-			c := &di.CLI{Out: &out, Err: &errOut, Version: "v"}
+			c := di.CLI{Out: &out, Err: &errOut, Version: "v"}
 
 			if code := c.Run([]string{flag}); code != exit.OK {
 				t.Errorf("exit code = %d, want %d", code, exit.OK)
@@ -49,7 +49,7 @@ func TestCLI_NoArgsShowsUsageOnStderr(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut}
+	c := di.CLI{Out: &out, Err: &errOut}
 
 	if code := c.Run(nil); code != exit.Usage {
 		t.Errorf("exit code = %d, want %d", code, exit.Usage)
@@ -63,7 +63,7 @@ func TestCLI_UnknownFlag(t *testing.T) {
 	t.Parallel()
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut}
+	c := di.CLI{Out: &out, Err: &errOut}
 
 	if code := c.Run([]string{"--no-such-flag"}); code != exit.Usage {
 		t.Errorf("exit code = %d, want %d", code, exit.Usage)
@@ -90,7 +90,7 @@ type Container struct {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	code := c.Run([]string{"./..."})
 	if code != exit.OK {
@@ -134,7 +134,7 @@ type Container struct {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	code := c.Run([]string{"-o", "wired.go", "./..."})
 	if code != exit.OK {
@@ -167,7 +167,7 @@ type Container struct {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	code := c.Run([]string{"--must", "./..."})
 	if code != exit.OK {
@@ -207,7 +207,7 @@ func (f *Facade) Greet() string { return f.inner.Greet() }
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	if code := c.Run([]string{"--must", "./..."}); code != exit.OK {
 		t.Fatalf("first run: exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
@@ -240,7 +240,7 @@ type Container struct {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	code := c.Run([]string{"./..."})
 	if code != exit.Error {
@@ -282,7 +282,7 @@ type Container struct {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	if code := c.Run([]string{"./..."}); code != exit.Error {
 		t.Fatalf("exit code = %d, want %d", code, exit.Error)
@@ -307,7 +307,7 @@ func TestCLI_ReportsNoContainerFound(t *testing.T) {
 	})
 
 	var out, errOut bytes.Buffer
-	c := &di.CLI{Out: &out, Err: &errOut, Dir: dir}
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
 	code := c.Run([]string{"./..."})
 	if code != exit.Error {

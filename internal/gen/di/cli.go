@@ -31,8 +31,8 @@ type CLI struct {
 }
 
 // NewCLI constructs a CLI with default writers and the given version string.
-func NewCLI(version string) *CLI {
-	return &CLI{
+func NewCLI(version string) CLI {
+	return CLI{
 		Out:     os.Stdout,
 		Err:     os.Stderr,
 		Version: version,
@@ -42,7 +42,7 @@ func NewCLI(version string) *CLI {
 // Run parses args (excluding the program name) and returns one of the codes in
 // package exit: Error when generation fails (missing providers, ambiguity, write
 // errors), Usage when the invocation itself is wrong (bad flags, no patterns).
-func (c *CLI) Run(args []string) int {
+func (c CLI) Run(args []string) int {
 	for _, raw := range args {
 		switch raw {
 		case "--version":
@@ -228,14 +228,14 @@ func groupByPackage(cs []Container) []containerGroup {
 	return out
 }
 
-func (c *CLI) printDiags(ds []diag.Diag) {
+func (c CLI) printDiags(ds []diag.Diag) {
 	if len(ds) == 0 {
 		return
 	}
 	fmt.Fprintln(c.Err, diag.Format(ds))
 }
 
-func (c *CLI) printUsage(w io.Writer) {
+func (c CLI) printUsage(w io.Writer) {
 	fmt.Fprintln(w, "kanna-di — type-safe dependency-injection code generator for Go")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Usage:")
