@@ -1,21 +1,24 @@
 # kanna
 
-Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, migrations, seeding. Each works on its own and emits plain Go with no runtime reflection.
+Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, migrations, seeding. Each
+works on its own and emits plain Go with no runtime reflection.
 
-Your structs are the source of truth. Point a generator at a package and it writes the code you would otherwise write by hand, so the output stays readable, debuggable, and free of anything to learn at runtime.
+Your structs are the source of truth. Point a generator at a package and it writes the code you would otherwise write by
+hand, so the output stays readable, debuggable, and free of anything to learn at runtime.
 
 ## Status
 
-kanna is being assembled from generators that already exist as standalone tools. Each is ported onto a shared scanning layer as it lands.
+kanna is being assembled from generators that already exist as standalone tools. Each is ported onto a shared scanning
+layer as it lands.
 
-| Generator | What it does | Status |
-|---|---|---|
-| `kanna-di` | dependency-injection constructors | available |
-| `kanna-fixture` | test fixtures from model structs | planned |
-| `kanna-mapper` | struct-to-struct mapping | planned |
-| `kanna-orm` | query helpers from model structs | planned |
-| `kanna-migrate` | SQL migrations from model structs | planned |
-| `kanna-i18n` | typed message constructors from locale files | planned |
+| Generator       | What it does                                 | Status    |
+|-----------------|----------------------------------------------|-----------|
+| `kanna-di`      | dependency-injection constructors            | available |
+| `kanna-fixture` | test fixtures from model structs             | planned   |
+| `kanna-mapper`  | struct-to-struct mapping                     | planned   |
+| `kanna-orm`     | query helpers from model structs             | planned   |
+| `kanna-migrate` | SQL migrations from model structs            | planned   |
+| `kanna-i18n`    | typed message constructors from locale files | planned   |
 
 Nothing is released yet, so import paths and flags may still move.
 
@@ -31,7 +34,8 @@ go get -tool github.com/go-kanna/kanna/cmd/kanna-di
 
 ### Use
 
-A **provider** is any top-level function returning `T` or `(T, error)`. Nothing needs to be registered — kanna-di finds them by scanning the packages you point it at.
+A **provider** is a top-level function whose first result is a named type, a pointer to one, or an interface, optionally
+followed by an `error`. Nothing needs to be registered — kanna-di finds them by scanning the packages you point it at.
 
 A **container** is a struct whose fields carry a `di` tag.
 
@@ -51,6 +55,7 @@ func NewUser(db *DB) User { return User{db: db} }
 type Container struct {
 	User User `di:""`
 }
+
 ```
 
 ```sh
@@ -79,43 +84,49 @@ When any provider in the chain returns an error, the constructor returns one too
 
 ### Tags
 
-A field may be named — the resolved value is stored in it — or blank (`_`), which declares something about the container without keeping a value.
+A field may be named — the resolved value is stored in it — or blank (`_`), which declares something about the container
+without keeping a value.
 
-| Tag | On a named field | On a blank field |
-|---|---|---|
-| `di:""` | resolve from whichever provider returns the field's type | — |
-| `di:"with=<ref>"` | resolve from the named provider | pick that provider for the type everywhere in this container |
-| `di:"arg"` | take it as a constructor parameter, named after its type, and store it | take it as a parameter only |
-| `di:"arg=<name>"` | same, with the parameter name spelled out | same, with the parameter name spelled out |
-| `di:"returns"` | store it and declare its type as the constructor's return type | declare the return type only |
-| `di:"embed"` | — | take a struct as a parameter and offer its exported fields as resolution sources |
+| Tag               | On a named field                                                       | On a blank field                                                                 |
+|-------------------|------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| `di:""`           | resolve from whichever provider returns the field's type               | —                                                                                |
+| `di:"with=<ref>"` | resolve from the named provider                                        | pick that provider for the type everywhere in this container                     |
+| `di:"arg"`        | take it as a constructor parameter, named after its type, and store it | take it as a parameter only                                                      |
+| `di:"arg=<name>"` | same, with the parameter name spelled out                              | same, with the parameter name spelled out                                        |
+| `di:"returns"`    | store it and declare its type as the constructor's return type         | declare the return type only                                                     |
+| `di:"embed"`      | —                                                                      | take a struct as a parameter and offer its exported fields as resolution sources |
 
-`<ref>` may be a bare function name (`NewWriter`), a package-qualified one (`config.NewWriter`), or fully qualified (`github.com/me/config.NewWriter`).
+`<ref>` may be a bare function name (`NewWriter`), a package-qualified one (`config.NewWriter`), or fully qualified (
+`github.com/me/config.NewWriter`).
 
 ### Directives
 
-A `//kanna:container` comment above the struct adjusts what gets generated. It is optional — one `di` tag is enough to make a struct a container.
+A `//kanna:container` comment above the struct adjusts what gets generated. It is optional — one `di` tag is enough to
+make a struct a container.
 
-| Directive | Effect |
-|---|---|
-| `//kanna:container name=<ident>` | name the constructor (default: `New` + struct name) |
-| `//kanna:container returns=<type>` | declare the return type (default: pointer to the struct) |
-| `//kanna:container must` | also emit `MustNew*`, which panics instead of returning the error |
+| Directive                          | Effect                                                            |
+|------------------------------------|-------------------------------------------------------------------|
+| `//kanna:container name=<ident>`   | name the constructor (default: `New` + struct name)               |
+| `//kanna:container returns=<type>` | declare the return type (default: pointer to the struct)          |
+| `//kanna:container must`           | also emit `MustNew*`, which panics instead of returning the error |
 
-`returns=` takes the container's own type to construct it by value, or an interface the container satisfies to hide the concrete type.
+`returns=` takes the container's own type to construct it by value, or an interface the container satisfies to hide the
+concrete type.
 
 ### Flags
 
-| Flag | Meaning |
-|---|---|
-| `-o <file>` | output file name per package (default: `di_gen.go`) |
-| `--must` | emit `MustNew*` for every container |
-| `--tags <list>` | comma-separated build tags |
-| `-v`, `--verbose` | verbose output |
+| Flag              | Meaning                                             |
+|-------------------|-----------------------------------------------------|
+| `-o <file>`       | output file name per package (default: `di_gen.go`) |
+| `--must`          | emit `MustNew*` for every container                 |
+| `--tags <list>`   | comma-separated build tags                          |
+| `-v`, `--verbose` | verbose output                                      |
 
 ### Example
 
-[`examples/di`](examples/di) wires a small application that exercises every tag and directive above, and is regenerated by CI to prove the output stays current.
+[`examples/di`](examples/di) wires a small application covering every directive and every tag except `di:"arg=<name>"`,
+which needs a name collision before it is worth showing. CI regenerates it and fails if the output would change, so what
+you read there is what the generator currently produces.
 
 ## Development
 
@@ -125,7 +136,8 @@ make lint        # golangci-lint
 make examples    # regenerate every example, then build and run it
 ```
 
-The repository is a Go workspace: `go.work` points the examples' `tool` directive at this checkout, so `go generate` inside an example runs the generator you have locally rather than a published version.
+The repository is a Go workspace: `go.work` points the examples' `tool` directive at this checkout, so `go generate`
+inside an example runs the generator you have locally rather than a published version.
 
 ## License
 
