@@ -69,6 +69,33 @@ func ErrorFirst() (error, *DB)      { return nil, nil }
 	}
 }
 
+func TestProviders_OmitsTheVariadicParameter(t *testing.T) {
+	t.Parallel()
+
+	// A variadic parameter is a slice, and no provider can produce a slice, so
+	// resolving it would fail every time. Go allows omitting the argument, which
+	// is what the generated call does.
+	src := `package test
+
+type Opt func()
+type Foo struct{}
+
+func NewFoo(name string, opts ...Opt) *Foo { return nil }
+`
+	providers, ds := providersOf(t, src)
+	assertNoErrors(t, ds)
+
+	if got, want := len(providers), 1; got != want {
+		t.Fatalf("providers = %d, want %d", got, want)
+	}
+	if got, want := len(providers[0].Params), 1; got != want {
+		t.Fatalf("Params = %d, want %d (the variadic one is dropped)", got, want)
+	}
+	if got, want := providers[0].Params[0].String(), "string"; got != want {
+		t.Errorf("Params[0] = %q, want %q", got, want)
+	}
+}
+
 func TestProviders_SkipsMethods(t *testing.T) {
 	t.Parallel()
 

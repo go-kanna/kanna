@@ -122,19 +122,28 @@ func providerResult(sig *types.Signature) (result types.Type, returnsError, ok b
 	return first, false, true
 }
 
-// paramTypes extracts the parameter types of a signature in declaration order.
+// paramTypes extracts the parameter types a call has to supply, in declaration
+// order.
+//
+// A variadic parameter is left out. Its type is a slice, and a slice can never
+// be produced by a provider (only named types, pointers to them, and interfaces
+// can), so resolving it would fail every time. Go lets the argument be omitted
+// entirely, which is what the generated call does — pass options through a
+// non-variadic provider when they need to be wired.
 func paramTypes(sig *types.Signature) []types.Type {
 	params := sig.Params()
-	if params.Len() == 0 {
+
+	n := params.Len()
+	if sig.Variadic() && n > 0 {
+		n--
+	}
+	if n == 0 {
 		return nil
 	}
 
-	out := make([]types.Type, 0, params.Len())
-	for v := range params.Variables() {
-		if v == nil {
-			continue
-		}
-		out = append(out, v.Type())
+	out := make([]types.Type, 0, n)
+	for i := range n {
+		out = append(out, params.At(i).Type())
 	}
 	return out
 }
