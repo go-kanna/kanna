@@ -88,11 +88,14 @@ func TestFind(t *testing.T) {
 			},
 		},
 		{
+			// The suggestion has to carry the arguments, or following it costs
+			// the author what they wrote.
 			name:  "several spaces after the comment marker",
 			lines: []string{"//   kanna:container name=A"},
 			key:   "container",
 			wantWarnings: []string{
-				`"//   kanna:container name=A" is not recognized as a directive; write it as "//kanna:container" with no space`,
+				`"//   kanna:container name=A" is not recognized as a directive; ` +
+					`write it as "//kanna:container name=A" with no space`,
 			},
 		},
 		{

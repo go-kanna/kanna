@@ -80,9 +80,16 @@ func Find(lines []string, key string) (Directive, Messages) {
 		}
 
 		if !strings.HasPrefix(body, tag) {
+			// Carry the arguments into the suggestion; a reader who follows it
+			// literally should not silently lose what they wrote.
+			suggestion := "//" + tag
+			if args != "" {
+				suggestion += " " + args
+			}
+
 			msgs.Warnings = append(msgs.Warnings, fmt.Sprintf(
 				"%q is not recognized as a directive; write it as %q with no space",
-				strings.TrimSpace(line), "//"+tag))
+				strings.TrimSpace(line), suggestion))
 			continue
 		}
 
