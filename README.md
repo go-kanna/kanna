@@ -110,6 +110,10 @@ make a struct a container.
 | `//kanna:container returns=<type>` | declare the return type (default: pointer to the struct)          |
 | `//kanna:container must`           | also emit `MustNew*`, which panics instead of returning the error |
 
+Write the tag against the comment marker. Go only treats `//kanna:…` as a directive when the two are adjacent; with a
+space, `// kanna:container` stays part of the doc comment and shows up in `go doc` and on pkg.go.dev. kanna does not
+honor that form either, and points out the spelling it expected.
+
 `returns=` takes the container's own type to construct it by value, or an interface the container satisfies to hide the
 concrete type.
 
@@ -192,8 +196,21 @@ func User(setters ...func(m *model.User)) model.User {
 u := fixture.User(func(m *model.User) { m.Email = "known@example.com" })
 ```
 
-The generated code imports [gofakeit](https://github.com/brianvoe/gofakeit) and nothing else. Generation is
-deterministic; the values are not. Call `gofakeit.Seed(n)` in `TestMain` when a test needs the same data twice.
+The generated code calls [gofakeit](https://github.com/brianvoe/gofakeit), plus whatever else the values it builds
+need — `github.com/google/uuid` for a `uuid.UUID` field, for instance. When the destination module does not require one
+of them yet, the generator says so.
+
+Generation is deterministic; the values are not. Seed the faker when a test needs the same data twice:
+
+```go
+func TestMain(m *testing.M) {
+	if err := gofakeit.Seed(1); err != nil {
+		panic(err)
+	}
+
+	os.Exit(m.Run())
+}
+```
 
 ### Inference
 
@@ -226,7 +243,7 @@ The `fake` tag follows gofakeit's own template syntax, so there is nothing new t
 | Tag                     | Effect                                                                            |
 |-------------------------|-----------------------------------------------------------------------------------|
 | `fake:"{email}"`        | use that generator — also `{firstname}`, `{name}`, `{phone}`, `{url}`, and others |
-| `fake:"{number:18,65}"` | a parameterized generator — also `{intrange:…}`, `{price:…}`, `{sentence:n}`      |
+| `fake:"{number:18,65}"` | a parameterized generator — also `{intrange:…}`, `{uintrange:…}`, `{price:…}`     |
 | `fake:"???-####"`       | any other template, resolved at run time through `gofakeit.Generate`              |
 | `fake:"skip"` or `"-"`  | leave the field at its zero value                                                 |
 
