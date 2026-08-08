@@ -39,3 +39,28 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Regenerating every example and finding no change proves the generators
+      # still produce the committed output, end to end.
+      - name: Regenerate examples
+        run: make examples
+
+      # git diff alone would ignore a generated file that was never committed, so
+      # this asks for the full working-tree status.
+      - name: Check the examples are up to date
+        run: |
+          if [ -n "$(git status --porcelain -- examples)" ]; then
+            echo "::error::example output is stale; run 'make examples' and commit the result"
+            git status --porcelain -- examples
+            git diff -- examples
+            exit 1
+          fi

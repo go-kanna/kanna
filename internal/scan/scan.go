@@ -33,7 +33,7 @@ import (
 // elsewhere rather than a new struct.
 //
 // When one import path is loaded more than once, only a single package is read;
-// see dedupeByImportPath.
+// see DedupePackages.
 //
 // Load errors reported by go/packages are returned as error diagnostics. Any
 // structs that could still be resolved are returned alongside them, so callers
@@ -44,7 +44,7 @@ func Structs(pkgs []*packages.Package) ([]ir.Struct, []diag.Diag) {
 		diags   []diag.Diag
 	)
 
-	for _, pkg := range dedupeByImportPath(pkgs) {
+	for _, pkg := range DedupePackages(pkgs) {
 		ss, ds := structsInPackage(pkg)
 		structs = append(structs, ss...)
 		diags = append(diags, ds...)
@@ -53,15 +53,20 @@ func Structs(pkgs []*packages.Package) ([]ir.Struct, []diag.Diag) {
 	return structs, diags
 }
 
-// dedupeByImportPath keeps a single package per import path, ordered by ID.
+// DedupePackages keeps a single package per import path, ordered by ID.
 //
 // With Tests enabled, go/packages returns both a package and its in-package test
-// variant under one import path. Taking structs from both would do more than
-// report a declaration twice: the variants are type-checked separately, so two
+// variant under one import path. Reading declarations from both would do more
+// than report one twice: the variants are type-checked separately, so two
 // identical-looking types are not identical to go/types and any later comparison
 // against them fails. The test variant declares everything the plain one does
 // plus whatever _test.go adds, so keeping it loses nothing.
-func dedupeByImportPath(pkgs []*packages.Package) []*packages.Package {
+//
+// Structs applies this itself. It is exported so that a generator reading
+// something other than structs — a function scan, say — can work from the same
+// set of packages; mixing declarations from different variants reintroduces the
+// mismatch above. Applying it twice is harmless.
+func DedupePackages(pkgs []*packages.Package) []*packages.Package {
 	best := make(map[string]*packages.Package, len(pkgs))
 	for _, pkg := range pkgs {
 		if pkg == nil {
@@ -106,7 +111,7 @@ func structsInPackage(pkg *packages.Package) ([]ir.Struct, []diag.Diag) {
 		return nil, append(diags, diag.Errorf(token.Position{}, "package %s: no type information", pkg.PkgPath))
 	}
 
-	generated := generatedFiles(pkg)
+	generated := GeneratedFiles(pkg)
 	docs := docComments(pkg.Syntax)
 	scope := pkg.Types.Scope()
 
@@ -172,9 +177,14 @@ func fieldsOf(pkg *packages.Package, st *types.Struct) []ir.Field {
 	return fields
 }
 
-// generatedFiles returns the set of filenames in pkg that carry the generated
+// GeneratedFiles returns the set of filenames in pkg that carry the generated
 // code marker.
-func generatedFiles(pkg *packages.Package) map[string]bool {
+//
+// Structs skips those files so a generator never reads its own output back as
+// input. A generator that scans something other than structs may instead want to
+// keep them and know which declarations an earlier run produced, which is what
+// this exposes.
+func GeneratedFiles(pkg *packages.Package) map[string]bool {
 	if pkg.Fset == nil {
 		return nil
 	}

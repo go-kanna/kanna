@@ -1,6 +1,7 @@
 package di_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -257,6 +258,39 @@ type Container struct {
 	assertErrorContains(t, ds, "embedded field with di tag is not supported")
 	if len(containers) != 0 {
 		t.Errorf("containers = %d, want 0 (no usable fields remain)", len(containers))
+	}
+}
+
+func TestContainers_RejectsGenericContainer(t *testing.T) {
+	t.Parallel()
+
+	// The emitted constructor would carry T into its signature and fail to parse.
+	// Rejecting it here keeps the sibling container's output intact, since a
+	// package is emitted as a single file.
+	src := `package test
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type Box[T any] struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+
+type Sibling struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`
+	containers, ds := containersOf(t, src)
+
+	assertErrorContains(t, ds, "generic container Box is not supported")
+
+	names := make([]string, 0, len(containers))
+	for _, c := range containers {
+		names = append(names, c.StructName)
+	}
+	if want := []string{"Sibling"}; !slices.Equal(names, want) {
+		t.Errorf("containers = %v, want %v", names, want)
 	}
 }
 

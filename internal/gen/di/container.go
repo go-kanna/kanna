@@ -62,6 +62,16 @@ func containerOf(fset *token.FileSet, s ir.Struct) (Container, []diag.Diag, bool
 		return Container{}, diags, false
 	}
 
+	// A generic container is rejected here rather than later: the emitted
+	// constructor would carry the type parameters into its signature and fail to
+	// parse, and because a package is emitted as one file that failure would
+	// take every sibling container's output down with it.
+	if s.Named != nil && s.Named.TypeParams().Len() > 0 {
+		diags = append(diags, diag.Errorf(s.Pos,
+			"generic container %s is not supported: a constructor has no way to choose its type arguments", s.Name))
+		return Container{}, diags, false
+	}
+
 	directive, dds := buildDirective(fset, s, pd)
 	diags = append(diags, dds...)
 
