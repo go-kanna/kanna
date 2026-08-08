@@ -20,7 +20,9 @@ import (
 func main() {
 	// Generation is deterministic; the values are not. Seed the faker when a
 	// test needs the same data twice.
-	gofakeit.Seed(1)
+	if err := gofakeit.Seed(1); err != nil {
+		panic(err)
+	}
 
 	// Every field arrives filled, so a test only states what it cares about.
 	published := fixture.Article(func(m *model.Article) {
