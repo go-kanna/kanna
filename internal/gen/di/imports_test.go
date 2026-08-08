@@ -11,6 +11,49 @@ import (
 	"github.com/go-kanna/kanna/internal/gen/di"
 )
 
+func TestImports_RecordsTheAliasOwnPackage(t *testing.T) {
+	t.Parallel()
+
+	// os.FileInfo is an alias for io/fs.FileInfo. types.TypeString prints it as
+	// os.FileInfo, so "os" is the package the output has to import — unaliasing
+	// first would record io/fs and leave the generated file with "undefined: os".
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "t.go", `package app
+
+import "os"
+
+type Holder struct {
+	FI os.FileInfo
+}
+`, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	conf := &types.Config{Importer: importer.Default()}
+	pkg, err := conf.Check("app", fset, []*ast.File{f}, &types.Info{})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+
+	holder, ok := pkg.Scope().Lookup("Holder").Type().Underlying().(*types.Struct)
+	if !ok {
+		t.Fatal("Holder is not a struct")
+	}
+	aliased := holder.Field(0).Type()
+
+	im := di.NewImports("app")
+	im.AddType(aliased)
+
+	entries := im.Sorted()
+	if len(entries) != 1 || entries[0].Path != "os" {
+		t.Fatalf("imports = %v, want a single entry for os", entries)
+	}
+	if got, want := im.QualifyType(aliased), "os.FileInfo"; got != want {
+		t.Errorf("QualifyType = %q, want %q", got, want)
+	}
+}
+
 func TestImports_QualifyProvider_SamePackage(t *testing.T) {
 	t.Parallel()
 

@@ -149,21 +149,37 @@ func collectPkgs(t types.Type) []*types.Package {
 	var out []*types.Package
 	seen := map[*types.Package]struct{}{}
 
+	// record notes the package a named or aliased type is written against. The
+	// alias is not resolved first: types.TypeString prints the alias by its own
+	// name, so that is the package the output has to import.
+	record := func(obj *types.TypeName) {
+		if obj == nil {
+			return
+		}
+		pkg := obj.Pkg()
+		if pkg == nil {
+			return
+		}
+		if _, ok := seen[pkg]; ok {
+			return
+		}
+		seen[pkg] = struct{}{}
+		out = append(out, pkg)
+	}
+
 	var walk func(types.Type)
 	walk = func(t types.Type) {
 		if t == nil {
 			return
 		}
 		switch tt := t.(type) {
-		case *types.Named:
-			if obj := tt.Obj(); obj != nil {
-				if pkg := obj.Pkg(); pkg != nil {
-					if _, ok := seen[pkg]; !ok {
-						seen[pkg] = struct{}{}
-						out = append(out, pkg)
-					}
-				}
+		case *types.Alias:
+			record(tt.Obj())
+			for arg := range tt.TypeArgs().Types() {
+				walk(arg)
 			}
+		case *types.Named:
+			record(tt.Obj())
 			if ta := tt.TypeArgs(); ta != nil {
 				for arg := range ta.Types() {
 					walk(arg)
