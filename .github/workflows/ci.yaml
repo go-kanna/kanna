@@ -52,7 +52,7 @@ jobs:
       - name: Run build
         run: make build
 
-  example:
+  examples:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -61,13 +61,9 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Regenerating every example and finding no change proves the generators
-      # still produce the committed output, end to end.
       - name: Regenerate examples
         run: make examples
 
-      # git diff alone would ignore a generated file that was never committed, so
-      # this asks for the full working-tree status.
       - name: Check the examples are up to date
         run: |
           if [ -n "$(git status --porcelain -- examples)" ]; then
