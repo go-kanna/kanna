@@ -373,6 +373,36 @@ type Container struct {
 	}
 }
 
+func TestEmit_DoesNotShadowASamePackageProvider(t *testing.T) {
+	t.Parallel()
+
+	// The step holding *A would be named "a", which shadows the package-level
+	// function a() the next line calls: "cannot call a (variable of type *A)".
+	src := `package myapp
+type A struct{}
+type B struct{}
+func newA() *A     { return nil }
+func a(x *A) *B    { return nil }
+type Container struct {
+	B *B ` + "`di:\"\"`" + `
+}
+`
+	p := buildPlan(t, src)
+
+	got, err := di.Emit("myapp", []di.Plan{p})
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	if strings.Contains(string(got), "a := newA()") {
+		t.Errorf("step variable shadows the provider it calls:\n%s", got)
+	}
+
+	pkgtest.MustCompile(t, "myapp", map[string]string{
+		"myapp.go":  src,
+		"di_gen.go": string(got),
+	})
+}
+
 func TestEmit_Embed(t *testing.T) {
 	t.Parallel()
 

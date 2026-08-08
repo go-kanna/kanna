@@ -146,6 +146,18 @@ func assignNames(im *Imports, p Plan) names {
 	taken["v"] = true
 	taken["_"] = true
 
+	// Reserve the providers this body calls unqualified. A step variable named
+	// after its type can otherwise shadow a same-package function the body calls
+	// later, which compiles to "cannot call a (variable of type *A)".
+	for _, s := range p.Steps {
+		if s.Kind != StepKindProvider || s.Provider == nil {
+			continue
+		}
+		if s.Provider.PkgPath == p.Container.PkgPath {
+			taken[s.Provider.FuncName] = true
+		}
+	}
+
 	pick := func(base string) string {
 		if base == "" || base == "_" {
 			base = "v"
