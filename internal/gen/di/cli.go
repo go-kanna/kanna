@@ -1,6 +1,7 @@
 package di
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -43,34 +44,41 @@ func NewCLI(version string) CLI {
 // package exit: Error when generation fails (missing providers, ambiguity, write
 // errors), Usage when the invocation itself is wrong (bad flags, no patterns).
 func (c CLI) Run(args []string) int {
-	for _, raw := range args {
-		switch raw {
-		case "--version":
-			fmt.Fprintln(c.Out, c.Version)
-			return exit.OK
-		case "-h", "--help", "help":
-			c.printUsage(c.Out)
-			return exit.OK
-		}
+	// Only a leading "help" is the subcommand. Scanning every argument for it
+	// would let a flag value named "help" turn the run into a silent no-op.
+	if len(args) > 0 && args[0] == "help" {
+		c.printUsage(c.Out)
+		return exit.OK
 	}
 
 	fs := flag.NewFlagSet("kanna-di", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 
 	var (
-		verbose    bool
-		tagsRaw    string
-		mustFlag   bool
-		outputFile string
+		verbose     bool
+		tagsRaw     string
+		mustFlag    bool
+		outputFile  string
+		showVersion bool
 	)
 	fs.BoolVar(&verbose, "v", false, "verbose output")
 	fs.BoolVar(&verbose, "verbose", false, "verbose output")
 	fs.StringVar(&tagsRaw, "tags", "", "comma-separated build tags")
 	fs.BoolVar(&mustFlag, "must", false, "generate MustNew* constructors that panic on error")
 	fs.StringVar(&outputFile, "o", defaultOutputFile, "output file name (per package)")
+	fs.BoolVar(&showVersion, "version", false, "print version")
 
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			c.printUsage(c.Out)
+			return exit.OK
+		}
 		return exit.Usage
+	}
+
+	if showVersion {
+		fmt.Fprintln(c.Out, c.Version)
+		return exit.OK
 	}
 
 	patterns := fs.Args()
