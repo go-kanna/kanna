@@ -26,6 +26,7 @@ lint-fix:
 
 .PHONY: build
 build:
+	mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/kanna-di ./cmd/kanna-di
 
 .PHONY: clean
