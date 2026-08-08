@@ -6,11 +6,9 @@ import (
 	"os"
 
 	"github.com/go-kanna/kanna/internal/gen/di"
+	"github.com/go-kanna/kanna/internal/version"
 )
 
-// version is set via -ldflags at build time. The default is "dev".
-var version = "dev"
-
 func main() {
-	os.Exit(di.NewCLI(version).Run(os.Args[1:]))
+	os.Exit(di.NewCLI(version.String()).Run(os.Args[1:]))
 }
