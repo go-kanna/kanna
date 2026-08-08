@@ -54,6 +54,12 @@ func (c CLI) Run(args []string) int {
 	fs := flag.NewFlagSet("kanna-di", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 
+	// The usage below is printed by this function, which knows whether it is
+	// answering -h (stdout) or reporting a mistake (stderr). Left to itself the
+	// flag package would print its own on every parse error, so help would come
+	// out twice and split across both streams.
+	fs.Usage = func() {}
+
 	var (
 		verbose     bool
 		tagsRaw     string
@@ -73,6 +79,7 @@ func (c CLI) Run(args []string) int {
 			c.printUsage(c.Out)
 			return exit.OK
 		}
+		c.printUsage(c.Err)
 		return exit.Usage
 	}
 

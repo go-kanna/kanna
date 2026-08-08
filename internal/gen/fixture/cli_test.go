@@ -557,17 +557,27 @@ func TestRunDestinationClash(t *testing.T) {
 	}
 }
 
-// The subcommand form still works, but only in front.
-func TestRunHelpSubcommand(t *testing.T) {
+// Help goes to stdout once. The flag package prints its own usage unless told
+// not to, which would answer -h twice, split across both streams.
+func TestRunHelp(t *testing.T) {
 	t.Parallel()
 
-	code, stdout, stderr := runCLI(t, "", "help")
-	if code != exit.OK {
-		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
-	}
+	for _, arg := range []string{"-h", "--help", "help"} {
+		t.Run(arg, func(t *testing.T) {
+			t.Parallel()
 
-	if !strings.Contains(stdout, "Usage:") {
-		t.Errorf("stdout does not carry the usage: %q", stdout)
+			code, stdout, stderr := runCLI(t, "", arg)
+			if code != exit.OK {
+				t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+			}
+
+			if !strings.Contains(stdout, "Usage:") {
+				t.Errorf("stdout does not carry the usage: %q", stdout)
+			}
+			if stderr != "" {
+				t.Errorf("help also wrote to stderr: %q", stderr)
+			}
+		})
 	}
 }
 

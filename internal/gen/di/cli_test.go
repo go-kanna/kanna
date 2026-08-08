@@ -58,6 +58,11 @@ func TestCLI_Help(t *testing.T) {
 			if !strings.Contains(out.String(), "Usage:") {
 				t.Errorf("expected usage in stdout, got %q", out.String())
 			}
+			// The flag package prints its own usage unless told not to, which
+			// would answer -h twice, split across both streams.
+			if errOut.Len() > 0 {
+				t.Errorf("help also wrote to stderr: %q", errOut.String())
+			}
 		})
 	}
 }
