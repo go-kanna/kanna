@@ -2,7 +2,12 @@ package fixture
 
 import "go/types"
 
-var NameExpr = nameExpr
+var (
+	NameExpr    = nameExpr
+	ParseFlags  = parseFlags
+	FindGoMod   = findGoMod
+	PackageName = packageName
+)
 
 func TagExpr(tag string, typ types.Type, pkgPath, pkgName string) string {
 	inf := inferrer{pkgPath: pkgPath, pkgName: pkgName}
