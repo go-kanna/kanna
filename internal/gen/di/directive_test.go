@@ -12,10 +12,11 @@ func TestParseDirective(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		lines    []string
-		wantPD   di.ParsedDirective
-		wantErrs []string
+		name         string
+		lines        []string
+		wantPD       di.ParsedDirective
+		wantErrs     []string
+		wantWarnings []string
 	}{
 		{
 			name: "no comments",
@@ -30,9 +31,11 @@ func TestParseDirective(t *testing.T) {
 			wantPD: di.ParsedDirective{Found: true},
 		},
 		{
-			name:   "marker with leading space",
-			lines:  []string{"// kanna:container"},
-			wantPD: di.ParsedDirective{Found: true},
+			name:  "marker with leading space is not a directive",
+			lines: []string{"// kanna:container"},
+			wantWarnings: []string{
+				`"// kanna:container" is not recognized as a directive; write it as "//kanna:container" with no space`,
+			},
 		},
 		{
 			name:   "marker with trailing space",
@@ -131,7 +134,7 @@ func TestParseDirective(t *testing.T) {
 		},
 		{
 			name:   "other directives are ignored",
-			lines:  []string{"//go:generate something", "//kanna:ignore", "// kanna:container name=X"},
+			lines:  []string{"//go:generate something", "//kanna:ignore", "//kanna:container name=X"},
 			wantPD: di.ParsedDirective{Found: true, Name: "X"},
 		},
 		{
@@ -149,12 +152,15 @@ func TestParseDirective(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotPD, gotErrs := di.ParseDirective(tt.lines)
+			gotPD, gotMsgs := di.ParseDirective(tt.lines)
 			if !reflect.DeepEqual(gotPD, tt.wantPD) {
 				t.Errorf("ParsedDirective = %+v, want %+v", gotPD, tt.wantPD)
 			}
-			if !slices.Equal(gotErrs, tt.wantErrs) {
-				t.Errorf("errs = %v, want %v", gotErrs, tt.wantErrs)
+			if !slices.Equal(gotMsgs.Errors, tt.wantErrs) {
+				t.Errorf("errs = %v, want %v", gotMsgs.Errors, tt.wantErrs)
+			}
+			if !slices.Equal(gotMsgs.Warnings, tt.wantWarnings) {
+				t.Errorf("warnings = %v, want %v", gotMsgs.Warnings, tt.wantWarnings)
 			}
 		})
 	}

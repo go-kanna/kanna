@@ -25,6 +25,23 @@ func TestCLI_Version(t *testing.T) {
 	}
 }
 
+// A flag value that reads "help" is a value, not the subcommand. Treating it as
+// one would exit 0 having generated nothing.
+func TestCLI_FlagValueNamedHelp(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Version: "v"}
+
+	// -o names the output file, so "help" here is its value.
+	if code := c.Run([]string{"-o", "help", "./does-not-exist"}); code == exit.OK {
+		t.Errorf("exit code = %d, want a failure", code)
+	}
+	if strings.Contains(out.String(), "Usage:") {
+		t.Errorf("printed usage instead of running: %q", out.String())
+	}
+}
+
 func TestCLI_Help(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +57,11 @@ func TestCLI_Help(t *testing.T) {
 			}
 			if !strings.Contains(out.String(), "Usage:") {
 				t.Errorf("expected usage in stdout, got %q", out.String())
+			}
+			// The flag package prints its own usage unless told not to, which
+			// would answer -h twice, split across both streams.
+			if errOut.Len() > 0 {
+				t.Errorf("help also wrote to stderr: %q", errOut.String())
 			}
 		})
 	}

@@ -47,10 +47,8 @@ func Containers(fset *token.FileSet, structs []ir.Struct) ([]Container, []diag.D
 func containerOf(fset *token.FileSet, s ir.Struct) (Container, []diag.Diag, bool) {
 	fields, diags := containerFields(s)
 
-	pd, errs := ParseDirective(s.Doc)
-	for _, msg := range errs {
-		diags = append(diags, diag.Errorf(s.Pos, "%s", msg))
-	}
+	pd, msgs := ParseDirective(s.Doc)
+	diags = append(diags, msgs.Diags(s.Pos)...)
 
 	if len(fields) == 0 {
 		// Silence is right for a struct that never asked to be a container, but

@@ -5,24 +5,21 @@ import (
 	"fmt"
 	"go/token"
 	"strings"
-	"unicode"
-	"unicode/utf8"
+
+	"github.com/go-kanna/kanna/internal/directive"
 )
 
-// directiveTag is the prefix that marks a //kanna:container line.
-//
-// Every kanna generator shares the "kanna:" namespace and distinguishes itself
-// by the key that follows.
-const directiveTag = "kanna:container"
+// directiveKey identifies this generator within the shared kanna namespace,
+// spelling the directive //kanna:container.
+const directiveKey = "container"
 
-// ParsedDirective captures the values parsed from one or more comment lines
-// containing //kanna:container ... .
+// ParsedDirective captures the values parsed from a //kanna:container line.
 //
 // All fields are optional. ReturnsExpr is the raw textual type expression
 // (e.g. "greeter.Greeter") and is resolved to a concrete types.Type later by
 // the caller (which has access to the surrounding type-checked package).
 type ParsedDirective struct {
-	// Found is true when at least one //kanna:container line was seen.
+	// Found is true when a //kanna:container line was seen.
 	Found bool
 	// Name overrides the constructor name. Empty means not specified.
 	Name string
@@ -33,71 +30,26 @@ type ParsedDirective struct {
 }
 
 // ParseDirective scans the given comment lines for //kanna:container and returns
-// the parsed values together with any error messages.
+// the parsed values together with the messages the caller should report.
 //
-// Comment lines may include the leading "//" or "// "; both forms are accepted.
-// At most one //kanna:container line is allowed per call; duplicates produce an
-// error message.
-func ParseDirective(commentLines []string) (ParsedDirective, []string) {
-	var (
-		pd   ParsedDirective
-		errs []string
-	)
+// Package directive owns the syntax shared with every other generator: the tag
+// has to sit directly against the comment marker, and a second line is an error
+// rather than a silent override. What is left here is only the meaning of the
+// arguments.
+func ParseDirective(commentLines []string) (ParsedDirective, directive.Messages) {
+	d, msgs := directive.Find(commentLines, directiveKey)
+	if !d.Found {
+		return ParsedDirective{}, msgs
+	}
 
-	for _, line := range commentLines {
-		body, ok := stripCommentMarker(line)
-		if !ok {
-			continue
-		}
-		rest, ok := stripDirectivePrefix(body)
-		if !ok {
-			continue
-		}
-		if pd.Found {
-			errs = append(errs, "duplicate //kanna:container directive")
-			continue
-		}
-		pd.Found = true
-
-		for tok := range strings.FieldsSeq(rest) {
-			if err := applyDirectiveToken(&pd, tok); err != nil {
-				errs = append(errs, err.Error())
-			}
+	pd := ParsedDirective{Found: true}
+	for tok := range strings.FieldsSeq(d.Args) {
+		if err := applyDirectiveToken(&pd, tok); err != nil {
+			msgs.Errors = append(msgs.Errors, err.Error())
 		}
 	}
 
-	return pd, errs
-}
-
-// stripCommentMarker removes a leading "//" (and any surrounding whitespace)
-// from a comment line.
-func stripCommentMarker(line string) (string, bool) {
-	s := strings.TrimSpace(line)
-	if !strings.HasPrefix(s, "//") {
-		return "", false
-	}
-	s = strings.TrimPrefix(s, "//")
-	return strings.TrimSpace(s), true
-}
-
-// stripDirectivePrefix matches "kanna:container" exactly or followed by
-// whitespace (any kind: space, tab, etc.), returning the trailing arguments.
-//
-// A non-whitespace character right after the tag (e.g. "kanna:containerXYZ") is
-// rejected so the prefix is not mistaken for our directive.
-func stripDirectivePrefix(body string) (string, bool) {
-	if !strings.HasPrefix(body, directiveTag) {
-		return "", false
-	}
-	rest := body[len(directiveTag):]
-	if rest == "" {
-		return "", true
-	}
-	r, _ := utf8.DecodeRuneInString(rest)
-	if !unicode.IsSpace(r) {
-		return "", false
-	}
-	return strings.TrimSpace(rest), true
+	return pd, msgs
 }
 
 func applyDirectiveToken(pd *ParsedDirective, tok string) error {
