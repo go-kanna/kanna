@@ -19,6 +19,41 @@ func TestLoad_NoPatterns(t *testing.T) {
 	}
 }
 
+// TypesInfo decides whether the loader retains what expressions refer to, which
+// is the difference between a generator that can read a call and one that
+// cannot.
+func TestLoad_TypesInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  packages.Config
+		want bool
+	}{
+		{name: "off by default", cfg: packages.Config{}, want: false},
+		{name: "opt in", cfg: packages.Config{TypesInfo: true}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := packages.Load([]string{"github.com/go-kanna/kanna/internal/packages"}, tt.cfg)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if len(res.Packages) != 1 {
+				t.Fatalf("packages = %d, want 1", len(res.Packages))
+			}
+
+			info := res.Packages[0].TypesInfo
+			if got := info != nil && len(info.Uses) > 0; got != tt.want {
+				t.Errorf("TypesInfo populated = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestJoinTags(t *testing.T) {
 	t.Parallel()
 

@@ -30,6 +30,15 @@ type Config struct {
 	BuildTags []string
 	// Tests indicates whether test files are included in the load.
 	Tests bool
+
+	// TypesInfo requests the per-expression type-checking results.
+	//
+	// A generator that reads declarations does not need them; one that reads
+	// what an expression refers to does. Resolving the callee of a call, or the
+	// type arguments a generic call was instantiated with, is only possible
+	// through this. It is opt-in because retaining the maps costs memory that a
+	// scan over declarations has no use for.
+	TypesInfo bool
 }
 
 // Result contains the packages loaded for the requested patterns.
@@ -58,6 +67,10 @@ func Load(patterns []string, cfg Config) (*Result, error) {
 		packages.NeedImports |
 		packages.NeedTypes |
 		packages.NeedSyntax
+
+	if cfg.TypesInfo {
+		mode |= packages.NeedTypesInfo
+	}
 
 	fset := token.NewFileSet()
 	pc := &packages.Config{
