@@ -66,7 +66,7 @@ func TrackerNames(outputPkgPath string, pkgs ...*types.Package) []string {
 	tracker := newImportTracker(outputPkgPath)
 	names := make([]string, 0, len(pkgs))
 	for _, p := range pkgs {
-		names = append(names, tracker.qualifier(p))
+		names = append(names, tracker.Qualifier(p))
 	}
 	return names
 }

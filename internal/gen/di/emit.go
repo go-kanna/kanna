@@ -138,9 +138,10 @@ type names struct {
 // collision is detected. Steps that reference an input share that input's
 // renamed identifier so the function signature and the body stay in sync.
 func assignNames(im *Imports, p Plan) names {
-	taken := make(map[string]bool, len(im.used)+3)
-	for a := range im.used {
-		taken[a] = true
+	occupied := im.Taken()
+	taken := make(map[string]bool, len(occupied)+3)
+	for _, n := range occupied {
+		taken[n] = true
 	}
 	// Reserve identifiers the generated body always uses.
 	taken["err"] = true
