@@ -31,6 +31,20 @@ func DescribePlan(p *funcPlan) string {
 	return p.describe()
 }
 
+// EmitFile exposes emitFile for tests.
+var EmitFile = emitFile
+
+// TrackerNames runs qualifier over pkgs in order and returns the local
+// names assigned, for import collision tests.
+func TrackerNames(outputPkgPath string, pkgs ...*types.Package) []string {
+	tracker := newImportTracker(outputPkgPath)
+	names := make([]string, 0, len(pkgs))
+	for _, p := range pkgs {
+		names = append(names, tracker.qualifier(p))
+	}
+	return names
+}
+
 // ConverterInfo summarizes a converter for test assertions.
 type ConverterInfo struct {
 	Func    string
