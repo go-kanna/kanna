@@ -21,6 +21,15 @@ type Package = packages.Package
 // callers can inspect load failures without importing the upstream package.
 type Error = packages.Error
 
+// Visit walks the import graph rooted at pkgs, calling pre before a package's
+// dependencies and post after them; either may be nil. Each package is visited
+// once.
+//
+// Load reports errors only on the packages it was asked for, so a generator that
+// must not proceed on incomplete type information uses this to reach the
+// failures in their dependencies too.
+var Visit = packages.Visit
+
 // Config controls how packages are loaded.
 type Config struct {
 	// Dir is the directory the patterns are resolved against. Empty means the

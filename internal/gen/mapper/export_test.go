@@ -1,6 +1,16 @@
 package mapper
 
-import "go/types"
+import (
+	"go/types"
+	"io"
+)
+
+// Parse exposes parseFlags for tests, dropping the version flag it also reports.
+func Parse(args []string, stderr io.Writer) (Config, error) {
+	cfg, _, err := parseFlags(args, stderr)
+
+	return cfg, err
+}
 
 // ImportScope exposes importScope for tests.
 type ImportScope = importScope
