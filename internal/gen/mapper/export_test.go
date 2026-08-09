@@ -2,6 +2,22 @@ package mapper
 
 import "go/types"
 
+// ImportScope exposes importScope for tests.
+type ImportScope = importScope
+
+// CollectImports exposes collectImports for tests.
+var CollectImports = collectImports
+
+// ResolveSelector exposes importScope.resolveSelector for tests.
+func (s importScope) ResolveSelector(sel string, pkgNames map[string]string) (string, error) {
+	return s.resolveSelector(sel, pkgNames)
+}
+
+// ImportPaths exposes importScope.importPaths for tests.
+func (s importScope) ImportPaths() []string {
+	return s.importPaths()
+}
+
 // ConverterTable exposes converterTable for tests.
 type ConverterTable = converterTable
 
