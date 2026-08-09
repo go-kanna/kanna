@@ -8,6 +8,29 @@ type ConverterTable = converterTable
 // ExtractConverters exposes extractConverters for tests.
 var ExtractConverters = extractConverters
 
+// PairSpec exposes pairSpec for tests.
+type PairSpec = pairSpec
+
+// FieldKey exposes fieldKey for tests.
+type FieldKey = fieldKey
+
+// ResolveConfig exposes resolveConfig for tests.
+type ResolveConfig = resolveConfig
+
+// FuncPlan exposes funcPlan for tests.
+type FuncPlan = funcPlan
+
+// ResolvePlans exposes resolvePlans for tests.
+var ResolvePlans = resolvePlans
+
+// TypeConvertible exposes typeConvertible for tests.
+var TypeConvertible = typeConvertible
+
+// DescribePlan exposes funcPlan.describe for tests.
+func DescribePlan(p *funcPlan) string {
+	return p.describe()
+}
+
 // ConverterInfo summarizes a converter for test assertions.
 type ConverterInfo struct {
 	Func    string
