@@ -27,6 +27,20 @@ const (
 	KindNumber
 )
 
+// String returns the kind's name as written in a placeholder annotation.
+func (k Kind) String() string {
+	switch k {
+	case KindString:
+		return "string"
+	case KindInt:
+		return "int"
+	case KindNumber:
+		return "number"
+	default:
+		return "invalid"
+	}
+}
+
 // Segment is one piece of a message template: literal text, or a placeholder
 // naming the argument whose value takes its place. A segment is one or the
 // other; an empty Param means text.
