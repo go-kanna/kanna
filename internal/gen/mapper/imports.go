@@ -2,7 +2,6 @@ package mapper
 
 import (
 	"bytes"
-	"fmt"
 	"strings"
 
 	"github.com/go-kanna/kanna/internal/imports"
@@ -44,49 +43,22 @@ func isTempPattern(name string) bool {
 	return false
 }
 
-// writeImports renders the import block: standard library first, then the rest,
-// each group sorted by path.
+// writeImports renders the import block: standard library first, then the rest.
 func writeImports(buf *bytes.Buffer, t *imports.Tracker) {
-	entries := t.Entries()
-	if len(entries) == 0 {
-		return
-	}
-
-	var std, rest []imports.Entry
-	for _, e := range entries {
+	imports.Render(buf, t.Entries(), func(e imports.Entry) int {
 		if isStdlibPath(e.Path) {
-			std = append(std, e)
-		} else {
-			rest = append(rest, e)
+			return 0
 		}
-	}
-
-	buf.WriteString("import (\n")
-	for _, e := range std {
-		writeImportSpec(buf, e)
-	}
-	if len(std) > 0 && len(rest) > 0 {
-		buf.WriteByte('\n')
-	}
-	for _, e := range rest {
-		writeImportSpec(buf, e)
-	}
-	buf.WriteString(")\n")
+		return 1
+	})
 }
 
-func writeImportSpec(buf *bytes.Buffer, e imports.Entry) {
-	if e.Alias == lastPathElem(e.Path) {
-		fmt.Fprintf(buf, "%q\n", e.Path)
-		return
-	}
-	fmt.Fprintf(buf, "%s %q\n", e.Alias, e.Path)
-}
-
+// isStdlibPath reports whether path names a standard library package.
+//
+// The heuristic is the usual one: only a domain-shaped first element belongs to
+// a module. A module path without a dot is misfiled here, which costs a grouping
+// in the output and nothing else.
 func isStdlibPath(path string) bool {
 	first, _, _ := strings.Cut(path, "/")
 	return !strings.Contains(first, ".")
-}
-
-func lastPathElem(path string) string {
-	return path[strings.LastIndex(path, "/")+1:]
 }

@@ -3,8 +3,8 @@
 package main
 
 import (
-	infra "github.com/go-kanna/kanna/examples/di/infra"
-	service "github.com/go-kanna/kanna/examples/di/service"
+	"github.com/go-kanna/kanna/examples/di/infra"
+	"github.com/go-kanna/kanna/examples/di/service"
 )
 
 // NewGreeterService initializes dependencies and constructs greeterApp.

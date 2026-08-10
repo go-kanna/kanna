@@ -8,6 +8,8 @@ import (
 	"go/types"
 	"io"
 	"strings"
+
+	"github.com/go-kanna/kanna/internal/imports"
 )
 
 // Emit renders a single .go file containing constructors for all the given
@@ -48,11 +50,8 @@ func Emit(packageName string, plans []Plan) ([]byte, error) {
 	fmt.Fprintf(&buf, "package %s\n\n", packageName)
 
 	if entries := im.Sorted(); len(entries) > 0 {
-		buf.WriteString("import (\n")
-		for _, e := range entries {
-			fmt.Fprintf(&buf, "\t%s %q\n", e.Alias, e.Path)
-		}
-		buf.WriteString(")\n\n")
+		imports.Render(&buf, entries, nil)
+		buf.WriteString("\n")
 	}
 
 	for _, p := range plans {

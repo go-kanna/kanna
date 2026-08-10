@@ -8,7 +8,9 @@
 package imports
 
 import (
+	"fmt"
 	"go/types"
+	"io"
 	"path"
 	"slices"
 	"strconv"
@@ -120,6 +122,55 @@ func (t *Tracker) Entries() []Entry {
 	})
 
 	return out
+}
+
+// Render writes an import block for entries.
+//
+// group assigns each entry a group number; groups are written in ascending
+// order separated by a blank line, which is the one thing gofmt will not
+// rearrange and therefore the only way a generator controls import grouping. A
+// nil group puts everything together.
+//
+// An alias that repeats what the path already says is left out, so the block
+// reads the way a person would have written it.
+func Render(w io.Writer, entries []Entry, group func(Entry) int) {
+	if len(entries) == 0 {
+		return
+	}
+
+	buckets := map[int][]Entry{}
+	for _, e := range entries {
+		g := 0
+		if group != nil {
+			g = group(e)
+		}
+		buckets[g] = append(buckets[g], e)
+	}
+
+	groups := make([]int, 0, len(buckets))
+	for g := range buckets {
+		groups = append(groups, g)
+	}
+	slices.Sort(groups)
+
+	fmt.Fprint(w, "import (\n")
+	for i, g := range groups {
+		if i > 0 {
+			fmt.Fprint(w, "\n")
+		}
+		for _, e := range buckets[g] {
+			writeSpec(w, e)
+		}
+	}
+	fmt.Fprint(w, ")\n")
+}
+
+func writeSpec(w io.Writer, e Entry) {
+	if e.Alias == "" || e.Alias == path.Base(e.Path) {
+		fmt.Fprintf(w, "\t%q\n", e.Path)
+		return
+	}
+	fmt.Fprintf(w, "\t%s %q\n", e.Alias, e.Path)
 }
 
 // baseName picks the name to start from: the package's own, falling back to the
