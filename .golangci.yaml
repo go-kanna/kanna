@@ -67,6 +67,11 @@ linters:
       - path: ^(i18n|internal/gen/i18n)/.*_test\.go$
         linters:
           - gosmopolitan # Locale fixtures in these tests legitimately contain CJK literals; everything else stays guarded.
+      - path: ^orm/integration/.*_test\.go$
+        linters:
+          - paralleltest # The integration tests share one database and truncate it between tests, so top-level parallelism would race on shared state. The per-dialect subtests do run in parallel.
+          - tparallel    # Same reason: the top-level tests are sequential by design.
+          - wrapcheck    # Test closures hand errors straight to t.Fatalf; wrapping would only obscure them.
 
 issues:
   max-issues-per-linter: 0

@@ -8,6 +8,14 @@ GENERATORS = di fixture i18n mapper
 test:
 	go test ./... -race
 
+# DB-backed integration tests for the orm runtime live in their own module
+# (orm/integration) so the root module stays free of database drivers. They expect
+# the containers from orm/integration/compose.yaml:
+#   docker compose -f orm/integration/compose.yaml up -d --wait
+.PHONY: test-integration
+test-integration:
+	cd orm/integration && go test ./... -race
+
 .PHONY: lint
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
