@@ -1,0 +1,9 @@
+greeting: "Hello!"
+hello: "Hello, {name}!"
+items_count:
+  one: "You have {count} item."
+  other: "You have {count} items."
+total_price: "Total: {price:number}"
+user:
+  not_found: "User not found."
+  deleted: "User {name} has been deleted."

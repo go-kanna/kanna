@@ -4,5 +4,6 @@ use (
 	.
 	./examples/di
 	./examples/fixture
+	./examples/i18n
 	./examples/mapper
 )
