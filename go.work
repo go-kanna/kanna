@@ -4,4 +4,5 @@ use (
 	.
 	./examples/di
 	./examples/fixture
+	./examples/mapper
 )

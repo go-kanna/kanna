@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"go/format"
 	"slices"
+
+	"github.com/go-kanna/kanna/internal/imports"
 )
 
 // gofakeitImport is the import path of the faker the generated code calls.
@@ -72,17 +74,19 @@ func writeImports(buf *bytes.Buffer, p EmitParams) {
 	deps := slices.Clone(p.Imports)
 	slices.Sort(deps)
 
-	buf.WriteString("\nimport (\n")
-
+	entries := make([]imports.Entry, 0, len(deps)+1)
 	for _, path := range deps {
-		fmt.Fprintf(buf, "\t%q\n", path)
+		entries = append(entries, imports.Entry{Path: path})
 	}
+	entries = append(entries, imports.Entry{Path: p.SourcePath})
 
-	if len(deps) > 0 {
-		buf.WriteString("\n")
-	}
-
-	fmt.Fprintf(buf, "\t%q\n)\n", p.SourcePath)
+	buf.WriteString("\n")
+	imports.Render(buf, entries, func(e imports.Entry) int {
+		if e.Path == p.SourcePath {
+			return 1
+		}
+		return 0
+	})
 }
 
 // needsHelper reports whether any expression calls mustGenerate, which then has

@@ -15,7 +15,7 @@ layer as it lands.
 |-----------------|----------------------------------------------|-----------|
 | `kanna-di`      | dependency-injection constructors            | available |
 | `kanna-fixture` | test fixtures from model structs             | available |
-| `kanna-mapper`  | struct-to-struct mapping                     | planned   |
+| `kanna-mapper`  | struct-to-struct mapping                     | available |
 | `kanna-orm`     | query helpers from model structs             | planned   |
 | `kanna-migrate` | SQL migrations from model structs            | planned   |
 | `kanna-i18n`    | typed message constructors from locale files | planned   |
@@ -279,6 +279,132 @@ compile.
 
 [`examples/fixture`](examples/fixture) generates fixtures for a model covering each inference rule, then builds values
 from them. CI regenerates it and fails if the output would change.
+
+## kanna-mapper
+
+Writes the mapping functions between your domain types and the wire types you do not control, calling the converters you
+registered for the fields Go cannot convert on its own.
+
+### Install
+
+```sh
+go get -tool github.com/go-kanna/kanna/cmd/kanna-mapper
+go get github.com/go-kanna/kanna/mapper
+```
+
+Two lines, because this generator has a runtime half. The package declaring your converters imports
+`github.com/go-kanna/kanna/mapper`; the generated code does not.
+
+### Use
+
+Register the conversions Go cannot do by itself, once, anywhere:
+
+```go
+package converters
+
+import "github.com/go-kanna/kanna/mapper"
+
+func init() {
+	mapper.Register(UUIDToString) // uuid.UUID → string
+	mapper.RegisterE(uuid.Parse)  // string → uuid.UUID, and this one can fail
+}
+```
+
+Then name the pairs to map:
+
+```go
+//go:generate go tool kanna-mapper -types=model.Employee:*employeev1.Employee -converter-pkg=../lib/converters
+package mapper
+
+import (
+	_ "example.com/app/gen/employeev1"
+	_ "example.com/app/model"
+)
+```
+
+The blank imports are what make `model` and `employeev1` resolvable as selectors. If the package already imports those
+types for real use, the directive stands on its own; full import paths work too.
+
+`go generate ./...` writes the functions:
+
+```go
+// EmployeeToEmployeev1 maps model.Employee to *employeev1.Employee.
+func EmployeeToEmployeev1(src model.Employee) *employeev1.Employee {
+	return &employeev1.Employee{
+		Id:      converters.UUIDToString(src.ID),
+		Name:    src.Name,
+		Address: AddressToEmployeev1(src.Address),
+	}
+}
+
+// EmployeeFromEmployeev1 maps *employeev1.Employee to model.Employee.
+func EmployeeFromEmployeev1(src *employeev1.Employee) (model.Employee, error) {
+	if src == nil {
+		return model.Employee{}, nil
+	}
+	v1, err0 := uuid.Parse(src.GetId())
+	if err0 != nil {
+		return model.Employee{}, fmt.Errorf("map model.Employee.ID: %w", err0)
+	}
+	// ...
+}
+```
+
+The direction that can fail returns an error naming the field that produced it. The direction that cannot, does not.
+Nil-safe getters are used when the wire type has them.
+
+`mapper.Register` is never executed by the generator: the calls are read statically, and the functions they name are
+called directly. The registry also works at run time through `mapper.Convert` if you want it.
+
+### How fields are matched
+
+Each destination field takes the first rule that matches.
+
+| Rule                                              | Example                                                    |
+|---------------------------------------------------|------------------------------------------------------------|
+| the destination field's own tag                   | a destination tagged `map:"EmployeeName"` reads that field |
+| a source field tagged with the destination's name | a source tagged `map:"Name"` fills `Name`                  |
+| the same name                                     | `Name` → `Name`                                            |
+| the same name, any case                           | `ID` → `Id`                                                |
+| a promoted field                                  | an embedded struct's field, by exact name                  |
+
+A destination field with no source is an error, not a silent zero value. Exclude it with `map:"-"` on the source, or
+`-ignore TYPE.FIELD` when the type is not yours to tag.
+
+### How values are converted
+
+| Case                             | Result                                        |
+|----------------------------------|-----------------------------------------------|
+| identical types                  | assigned as-is                                |
+| a registered converter exists    | that function is called                       |
+| the pair is declared in `-types` | the generated function for it is called       |
+| source is a pointer              | dereferenced; nil leaves the destination zero |
+| destination is a pointer         | the value's address is taken                  |
+| both are slices                  | converted element-wise; nil maps to nil       |
+| a lossless Go conversion exists  | `dst(v)`                                      |
+
+"Lossless" is meant strictly: `int32` → `int64` converts, `int64` → `int32` does not. Neither does `int` → `int32`
+(`int` is 64 bits on some platforms), `int` → `uint` (sign), `int64` → `float64` (precision), or anything → `string`.
+Everything else needs a converter, and the error message shows the `mapper.Register` line that would satisfy it.
+
+### Flags
+
+| Flag                   | Meaning                                                        |
+|------------------------|----------------------------------------------------------------|
+| `-types <SRC:DST>`     | pairs to map, comma-separated; repeatable. `*` marks a pointer |
+| `-converter-pkg <pkg>` | package holding the `mapper.Register` calls; repeatable        |
+| `-ignore <TYPE.FIELD>` | destination fields to skip; repeatable                         |
+| `-output <path>`       | output directory, or a file path ending in `.go`               |
+| `-direction <dir>`     | `both` (default), `to`, or `from`                              |
+| `-package <name>`      | output package name (default: `$GOPACKAGE`)                    |
+| `-check`               | verify the output is up to date instead of writing it          |
+
+### Example
+
+[`examples/mapper`](examples/mapper) maps a domain aggregate onto protobuf-shaped wire types and back, covering each way
+a field can be handled: renamed with `map:"Name"`, excluded from the domain side with `map:"-"`, excluded from the wire
+side with `-ignore` where there is no tag to write, converted through a registered function, and converted through one
+that can fail. CI regenerates it and fails if the output would change.
 
 ## Development
 

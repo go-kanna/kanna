@@ -97,7 +97,11 @@ func (c CLI) generate(cfg Config) int {
 	}
 
 	// Validate what can be checked before paying for the package load.
-	pkgName := packageName(cfg.Package, absDest)
+	pkgName, err := packageName(cfg.Package, absDest)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return exit.Usage
+	}
 	if !token.IsIdentifier(pkgName) {
 		fmt.Fprintf(c.Err, "invalid package name %q; use -package to override\n", pkgName)
 		return exit.Usage
@@ -268,16 +272,25 @@ func (c CLI) printDiags(ds []diag.Diag) {
 // packageName resolves the package name of the generated file. destDir must
 // be absolute, so that a relative -destination such as "." still yields a
 // directory name.
-func packageName(override, destDir string) string {
+func packageName(override, destDir string) (string, error) {
+	declared := declaredPackage(destDir)
+
+	// Every file in a directory has to agree on the package clause, so the
+	// override cannot win over what is already there: the result would be a file
+	// nothing can compile alongside its neighbours.
+	if override != "" && declared != "" && override != declared {
+		return "", fmt.Errorf("-package %s conflicts with package %s, which %s already declares",
+			override, declared, destDir)
+	}
+
 	if override != "" {
-		return override
+		return override, nil
+	}
+	if declared != "" {
+		return declared, nil
 	}
 
-	if name := declaredPackage(destDir); name != "" {
-		return name
-	}
-
-	return filepath.Base(destDir)
+	return filepath.Base(destDir), nil
 }
 
 // declaredPackage returns the package the Go files in dir already declare;

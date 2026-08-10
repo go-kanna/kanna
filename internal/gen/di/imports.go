@@ -3,40 +3,37 @@ package di
 import (
 	"go/types"
 	"path"
-	"slices"
-	"strings"
+
+	"github.com/go-kanna/kanna/internal/imports"
 )
 
 // Imports tracks the packages an emitted file references and assigns each a
 // non-conflicting alias. The container's own package is never included.
+//
+// Naming is delegated to the shared tracker; what stays here is which packages
+// a DI plan references, which is the part no other generator shares.
 type Imports struct {
 	containerPkg string
-	aliases      map[string]string // pkgPath → alias
-	used         map[string]bool
+	tracker      *imports.Tracker
 }
 
 // ImportEntry is a single line in the generated import block.
-type ImportEntry struct {
-	Path  string
-	Alias string
-}
+type ImportEntry = imports.Entry
 
 // NewImports constructs an Imports tracker for an emitted file in containerPkg.
 //
-// Reserved names are claimed up front so no import can take one. The generated
-// body declares err and v unconditionally, and assignNames keeps step variables
-// clear of import aliases; reserving the same names here closes the other half
-// of that, so neither side can shadow the other.
+// Reserved names are kept away from imports. The generated body declares err and
+// v unconditionally, and assignNames keeps step variables clear of import
+// aliases; reserving the same names here closes the other half of that, so
+// neither side can shadow the other.
 func NewImports(containerPkg string, reserved ...string) *Imports {
-	im := &Imports{
+	tracker := imports.New(containerPkg, nil)
+	tracker.Reserve(reserved...)
+
+	return &Imports{
 		containerPkg: containerPkg,
-		aliases:      map[string]string{},
-		used:         map[string]bool{},
+		tracker:      tracker,
 	}
-	for _, r := range reserved {
-		im.used[r] = true
-	}
-	return im
 }
 
 // AddType records the package of every named type referenced by t, recursing
@@ -75,8 +72,8 @@ func (im *Imports) QualifyProvider(p *Provider) string {
 	if p.PkgPath == "" || p.PkgPath == im.containerPkg {
 		return p.FuncName
 	}
-	alias := im.aliases[p.PkgPath]
-	if alias == "" {
+	alias, ok := im.tracker.Lookup(p.PkgPath)
+	if !ok {
 		alias = path.Base(p.PkgPath)
 	}
 	return alias + "." + p.FuncName
@@ -85,14 +82,14 @@ func (im *Imports) QualifyProvider(p *Provider) string {
 // Sorted returns one entry per imported package, sorted by path. The container's
 // own package is excluded.
 func (im *Imports) Sorted() []ImportEntry {
-	out := make([]ImportEntry, 0, len(im.aliases))
-	for p, a := range im.aliases {
-		out = append(out, ImportEntry{Path: p, Alias: a})
-	}
-	slices.SortFunc(out, func(a, b ImportEntry) int {
-		return strings.Compare(a.Path, b.Path)
-	})
-	return out
+	return im.tracker.Entries()
+}
+
+// Taken returns every local name the imports occupy, including the ones
+// reserved at construction. assignNames keeps the body's identifiers clear of
+// these.
+func (im *Imports) Taken() []string {
+	return im.tracker.Taken()
 }
 
 func (im *Imports) addPackage(p *types.Package) {
@@ -103,27 +100,15 @@ func (im *Imports) addPackage(p *types.Package) {
 }
 
 func (im *Imports) addByPath(pkgPath, baseName string) {
-	if pkgPath == "" || pkgPath == im.containerPkg {
-		return
-	}
-	if _, ok := im.aliases[pkgPath]; ok {
-		return
-	}
-
-	base := baseName
-	if base == "" {
-		base = path.Base(pkgPath)
-	}
-	if base == "" || base == "." || base == "/" {
-		base = "pkg"
-	}
-
-	alias := uniqueName(base, im.used)
-	im.aliases[pkgPath] = alias
-	im.used[alias] = true
+	im.tracker.Add(pkgPath, baseName)
 }
 
 // qualify is the package-qualification function passed to types.TypeString.
+//
+// It looks up rather than records: by the time anything is rendered the imports
+// have already been collected, and a package reached only here is one
+// collectPkgs deliberately did not follow. Recording it would add an import the
+// output never mentions.
 func (im *Imports) qualify(p *types.Package) string {
 	if p == nil {
 		return ""
@@ -131,7 +116,7 @@ func (im *Imports) qualify(p *types.Package) string {
 	if p.Path() == im.containerPkg {
 		return ""
 	}
-	if alias, ok := im.aliases[p.Path()]; ok {
+	if alias, ok := im.tracker.Lookup(p.Path()); ok {
 		return alias
 	}
 	return p.Name()

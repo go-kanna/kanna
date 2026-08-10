@@ -8,6 +8,8 @@ import (
 	"go/types"
 	"io"
 	"strings"
+
+	"github.com/go-kanna/kanna/internal/imports"
 )
 
 // Emit renders a single .go file containing constructors for all the given
@@ -48,11 +50,8 @@ func Emit(packageName string, plans []Plan) ([]byte, error) {
 	fmt.Fprintf(&buf, "package %s\n\n", packageName)
 
 	if entries := im.Sorted(); len(entries) > 0 {
-		buf.WriteString("import (\n")
-		for _, e := range entries {
-			fmt.Fprintf(&buf, "\t%s %q\n", e.Alias, e.Path)
-		}
-		buf.WriteString(")\n\n")
+		imports.Render(&buf, entries, nil)
+		buf.WriteString("\n")
 	}
 
 	for _, p := range plans {
@@ -138,9 +137,10 @@ type names struct {
 // collision is detected. Steps that reference an input share that input's
 // renamed identifier so the function signature and the body stay in sync.
 func assignNames(im *Imports, p Plan) names {
-	taken := make(map[string]bool, len(im.used)+3)
-	for a := range im.used {
-		taken[a] = true
+	occupied := im.Taken()
+	taken := make(map[string]bool, len(occupied)+3)
+	for _, n := range occupied {
+		taken[n] = true
 	}
 	// Reserve identifiers the generated body always uses.
 	taken["err"] = true
