@@ -62,14 +62,17 @@ type opSlice struct {
 	elem op
 }
 
+// Asserted on values, not pointers: every op is constructed as a value, and a
+// pointer assertion would keep passing if a method moved to a pointer receiver
+// while the construction sites stopped satisfying the interface.
 var (
-	_ op = (*opDirect)(nil)
-	_ op = (*opConvert)(nil)
-	_ op = (*opMapper)(nil)
-	_ op = (*opTypeConv)(nil)
-	_ op = (*opDeref)(nil)
-	_ op = (*opAddr)(nil)
-	_ op = (*opSlice)(nil)
+	_ op = opDirect{}
+	_ op = opConvert{}
+	_ op = opMapper{}
+	_ op = opTypeConv{}
+	_ op = opDeref{}
+	_ op = opAddr{}
+	_ op = opSlice{}
 )
 
 func (opDirect) mayFail() bool    { return false }
