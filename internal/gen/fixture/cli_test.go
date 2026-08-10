@@ -605,14 +605,33 @@ func TestPackageName(t *testing.T) {
 		dir      string
 		// files, when non-nil, are written into the destination directory;
 		// a nil map leaves the directory missing.
-		files map[string]string
-		want  string
+		files   map[string]string
+		want    string
+		wantErr bool
 	}{
 		{
-			name:     "override wins over the declared package",
+			// Overriding to the name already declared is redundant but harmless.
+			name:     "override agreeing with the declared package",
+			override: "fixture",
+			dir:      "fixture",
+			files:    map[string]string{"fixture.go": "package fixture\n"},
+			want:     "fixture",
+		},
+		{
+			// Every file in a directory has to agree on the package clause, so
+			// this cannot be honored: it would produce a file that does not
+			// compile next to the one already there.
+			name:     "override conflicting with the declared package",
 			override: "fx",
 			dir:      "fixture",
 			files:    map[string]string{"fixture.go": "package fixture\n"},
+			wantErr:  true,
+		},
+		{
+			// With nothing declared yet there is nothing to conflict with.
+			name:     "override in an empty directory",
+			override: "fx",
+			dir:      "fixture",
 			want:     "fx",
 		},
 		{
@@ -658,7 +677,17 @@ func TestPackageName(t *testing.T) {
 				}
 			}
 
-			if got := fixture.PackageName(tt.override, dest); got != tt.want {
+			got, err := fixture.PackageName(tt.override, dest)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("packageName(%q, %q) = %q, want an error", tt.override, dest, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("packageName(%q, %q) error = %v", tt.override, dest, err)
+			}
+			if got != tt.want {
 				t.Errorf("packageName(%q, %q) = %q, want %q", tt.override, dest, got, tt.want)
 			}
 		})
