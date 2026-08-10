@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -80,6 +81,14 @@ func collectImports(env Env) (importScope, error) {
 		if strings.HasSuffix(name, "_test.go") && !isGoFile {
 			continue
 		}
+		// A file the build constraints exclude belongs to another platform or
+		// tag set. Its imports are not in scope here, and every import in scope
+		// becomes a package to load, so keeping them would fail the load on the
+		// platform doing the generating. $GOFILE is always read: it is the file
+		// carrying the directive that is running.
+		if !isGoFile && !buildable(env.Dir, name) {
+			continue
+		}
 		file, err := parser.ParseFile(fset, filepath.Join(env.Dir, name), nil, parser.ImportsOnly)
 		if err != nil {
 			return importScope{}, fmt.Errorf("parse %s: %w", name, err)
@@ -109,6 +118,9 @@ func singlePackageName(fset *token.FileSet, dir string, entries []os.DirEntry) (
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		if !buildable(dir, name) {
 			continue
 		}
 		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.PackageClauseOnly)
@@ -193,4 +205,14 @@ func (s importScope) resolveSelector(sel string, pkgNames map[string]string) (st
 		"cannot resolve package selector %q: import the package in this package's files or use a full import path in -types",
 		sel,
 	)
+}
+
+// buildable reports whether the current build context would compile the file.
+//
+// This covers both halves of Go's rules: the _GOOS/_GOARCH filename suffixes and
+// //go:build lines. An unreadable file is treated as buildable so the parser
+// below reports the real problem.
+func buildable(dir, name string) bool {
+	ok, err := build.Default.MatchFile(dir, name)
+	return err != nil || ok
 }
