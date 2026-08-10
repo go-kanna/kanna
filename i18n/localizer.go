@@ -27,18 +27,7 @@ func (b *Bundle) Localizer(tag language.Tag) Localizer {
 		return Localizer{}
 	}
 	_, idx, _ := b.matcher.Match(tag)
-	var layers []layer
-	seen := make(map[language.Tag]bool)
-	for t := b.tags[idx]; t != language.Und && !seen[t]; t = t.Parent() {
-		seen[t] = true
-		if _, ok := b.catalogs[t]; ok {
-			layers = append(layers, b.layer(t))
-		}
-	}
-	if _, ok := b.catalogs[b.defaultTag]; ok && !seen[b.defaultTag] {
-		layers = append(layers, b.layer(b.defaultTag))
-	}
-	return Localizer{layers: layers}
+	return Localizer{layers: b.chains[idx]}
 }
 
 // Localize renders the message in the Localizer's language. It never fails:
@@ -111,50 +100,49 @@ func (ly layer) pluralVariant(entry Entry, m Message) Template {
 // integers plain, and floats locale-formatted. Named types (type Price
 // float64) are followed to their underlying kind via reflection.
 func (ly layer) format(v any, kind Kind) string {
-	if kind == KindNumber {
-		if n, ok := numericValue(v); ok {
-			return ly.printer.Sprint(number.Decimal(n))
-		}
-	}
+	// The concrete types cover everything a generated constructor passes; the
+	// reflective cases below exist for hand-built Messages carrying named types
+	// (type Price float64), and pay for exactly one reflect.ValueOf.
 	switch v := v.(type) {
 	case string:
 		return v
-	case float64, float32:
+	case int:
+		if kind == KindNumber {
+			return ly.printer.Sprint(number.Decimal(v))
+		}
+		return strconv.Itoa(v)
+	case float64:
 		return ly.printer.Sprint(number.Decimal(v))
-	}
-	if n, ok := asInt(v); ok {
-		return strconv.Itoa(n)
-	}
-	if v == nil {
+	case float32:
+		return ly.printer.Sprint(number.Decimal(v))
+	case nil:
 		return fmt.Sprint(v)
 	}
+
 	val := reflect.ValueOf(v)
 	switch val.Kind() { //nolint:exhaustive // remaining kinds render via fmt.Sprint
 	case reflect.String:
 		return val.String()
 	case reflect.Float32, reflect.Float64:
 		return ly.printer.Sprint(number.Decimal(val.Float()))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if kind == KindNumber {
+			return ly.printer.Sprint(number.Decimal(val.Int()))
+		}
+		if n := val.Int(); n >= math.MinInt && n <= math.MaxInt {
+			return strconv.Itoa(int(n))
+		}
+		return fmt.Sprint(v)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if kind == KindNumber {
+			return ly.printer.Sprint(number.Decimal(val.Uint()))
+		}
+		if n := val.Uint(); n <= math.MaxInt {
+			return strconv.Itoa(int(n))
+		}
+		return fmt.Sprint(v)
 	default:
 		return fmt.Sprint(v)
-	}
-}
-
-// numericValue returns v as a canonical numeric type for locale-aware
-// formatting, following named types via reflection.
-func numericValue(v any) (any, bool) {
-	if v == nil {
-		return nil, false
-	}
-	val := reflect.ValueOf(v)
-	switch val.Kind() { //nolint:exhaustive // only numeric kinds format as numbers
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return val.Int(), true
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return val.Uint(), true
-	case reflect.Float32, reflect.Float64:
-		return val.Float(), true
-	default:
-		return nil, false
 	}
 }
 

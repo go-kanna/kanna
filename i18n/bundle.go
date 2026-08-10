@@ -17,6 +17,7 @@ type Bundle struct {
 	catalogs   map[language.Tag]Catalog
 	printers   map[language.Tag]*message.Printer
 	tags       []language.Tag // default first, rest sorted
+	chains     [][]layer      // fallback chain per tags index
 	matcher    language.Matcher
 }
 
@@ -44,6 +45,7 @@ func NewBundle(defaultLang string, catalogs ...Catalog) *Bundle {
 	}
 
 	b.buildMatcher()
+	b.buildChains()
 	return b
 }
 
@@ -80,4 +82,26 @@ func (b *Bundle) buildMatcher() {
 	tags = append(tags, rest...)
 	b.tags = tags
 	b.matcher = language.NewMatcher(tags)
+}
+
+// buildChains precomputes the fallback chain of every matchable tag. The chain
+// depends only on which catalogs exist, and the bundle never changes after
+// construction, so rebuilding it per Localizer call would buy nothing but
+// allocations on every request.
+func (b *Bundle) buildChains() {
+	b.chains = make([][]layer, len(b.tags))
+	for i, tag := range b.tags {
+		var layers []layer
+		seen := make(map[language.Tag]bool)
+		for t := tag; t != language.Und && !seen[t]; t = t.Parent() {
+			seen[t] = true
+			if _, ok := b.catalogs[t]; ok {
+				layers = append(layers, b.layer(t))
+			}
+		}
+		if _, ok := b.catalogs[b.defaultTag]; ok && !seen[b.defaultTag] {
+			layers = append(layers, b.layer(b.defaultTag))
+		}
+		b.chains[i] = layers
+	}
 }
