@@ -1,7 +1,8 @@
 greeting: "こんにちは！"
 hello: "こんにちは、{name}さん！"
 items_count:
-  other: "アイテムが{count}個あります。"
+  plural:
+    other: "アイテムが{count}個あります。"
 total_price: "合計: {price:number}"
 user:
   not_found: "ユーザーが見つかりません。"

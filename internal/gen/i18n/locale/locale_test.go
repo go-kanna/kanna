@@ -95,13 +95,13 @@ func TestEntry_Params(t *testing.T) {
 		},
 		{
 			name: "plural entry always takes count first",
-			src:  "items:\n  one: \"One item\"\n  other: \"Many items\"\n",
+			src:  "items:\n  plural:\n    one: \"One item\"\n    other: \"Many items\"\n",
 			key:  "items",
 			want: []template.Param{{Name: "count", Kind: template.KindInt}},
 		},
 		{
 			name: "plural params follow canonical category order",
-			src:  "items:\n  one: \"{count} item of {b}\"\n  other: \"{count} items of {a} and {b}\"\n",
+			src:  "items:\n  plural:\n    one: \"{count} item of {b}\"\n    other: \"{count} items of {a} and {b}\"\n",
 			key:  "items",
 			want: []template.Param{
 				{Name: "count", Kind: template.KindInt},
@@ -111,8 +111,9 @@ func TestEntry_Params(t *testing.T) {
 		},
 		{
 			name: "bare variant inherits explicit kind from earlier variant",
-			src:  "items:\n  one: \"{count} file, {size:number} bytes\"\n  other: \"{count} files, {size} bytes\"\n",
-			key:  "items",
+			src: "items:\n  plural:\n    one: \"{count} file, {size:number} bytes\"\n" +
+				"    other: \"{count} files, {size} bytes\"\n",
+			key: "items",
 			want: []template.Param{
 				{Name: "count", Kind: template.KindInt},
 				{Name: "size", Kind: template.KindNumber},
@@ -120,8 +121,9 @@ func TestEntry_Params(t *testing.T) {
 		},
 		{
 			name: "bare variant inherits explicit kind from later variant",
-			src:  "items:\n  one: \"{count} file, {size} bytes\"\n  other: \"{count} files, {size:number} bytes\"\n",
-			key:  "items",
+			src: "items:\n  plural:\n    one: \"{count} file, {size} bytes\"\n" +
+				"    other: \"{count} files, {size:number} bytes\"\n",
+			key: "items",
 			want: []template.Param{
 				{Name: "count", Kind: template.KindInt},
 				{Name: "size", Kind: template.KindNumber},
@@ -148,7 +150,7 @@ func TestEntry_Params(t *testing.T) {
 func TestEntry_Params_kindConflict(t *testing.T) {
 	t.Parallel()
 
-	c := mustParseYAML(t, "items:\n  one: \"{n:int} item\"\n  other: \"{n:number} items\"\n")
+	c := mustParseYAML(t, "items:\n  plural:\n    one: \"{n:int} item\"\n    other: \"{n:number} items\"\n")
 	if _, err := c.Entries["items"].Params(); err == nil {
 		t.Error("Params() returned nil error for conflicting kinds")
 	}

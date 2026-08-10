@@ -32,12 +32,17 @@ func Render(m Model, pkg string) ([]byte, error) {
 	b.WriteString(header)
 	fmt.Fprintf(&b, "package %s\n", pkg)
 
-	// A model carrying nothing at all still yields a compilable file. It only
-	// arises outside the CLI — Analyze fails on an empty locale directory — so
-	// there is nothing to embed and no import to justify.
-	if len(m.Messages) > 0 || len(m.Catalogs) > 0 {
+	// Each import is justified by what this run actually emits: the runtime by
+	// any constructor or catalog, the language package only by the Localizer
+	// accessor, which exists only when there are catalogs. format.Source does
+	// not strip an unused import, so guessing generously here would emit a file
+	// that does not compile.
+	switch {
+	case len(m.Catalogs) > 0:
 		b.WriteString("\nimport (\n\t\"golang.org/x/text/language\"\n\n\t" +
 			strconv.Quote(runtimePath) + "\n)\n")
+	case len(m.Messages) > 0:
+		b.WriteString("\nimport (\n\t" + strconv.Quote(runtimePath) + "\n)\n")
 	}
 
 	for _, msg := range m.Messages {

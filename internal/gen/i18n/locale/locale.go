@@ -2,12 +2,17 @@
 // catalogs.
 //
 // Nested mappings are flattened into dot-joined keys (user.not_found). A
-// mapping whose keys are all CLDR plural categories (zero, one, two, few,
-// many, other) is a plural group rather than nesting; it must define "other".
+// message declares its plural forms under an explicit "plural" mapping, keyed
+// by CLDR category (zero, one, two, few, many, other) and always defining
+// "other". The marker is explicit so that intent never has to be guessed from
+// shape: a mapping that merely happens to use category names as keys is
+// ordinary nesting.
 package locale
 
 import (
+	"errors"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,11 +30,39 @@ import (
 const CountParam = i18n.CountParam
 
 // PluralCategories lists the CLDR plural categories in canonical order.
-var PluralCategories = i18n.PluralCategories
+var PluralCategories = i18n.PluralCategories()
+
+// Error is a problem in a locale file, positioned where it sits. Line is 0
+// when the format provides no position (TOML); ParseFile fills Filename in.
+//
+// Carrying the position as data rather than formatted into the message is what
+// lets the caller hand it to the diag layer, where editors and CI can consume
+// file:line references.
+type Error struct {
+	Pos token.Position
+	Msg string
+}
+
+func (e *Error) Error() string {
+	if e.Pos.Filename == "" && !e.Pos.IsValid() {
+		return e.Msg
+	}
+	return e.Pos.String() + ": " + e.Msg
+}
+
+// errorAt builds a positioned Error; line 0 means unknown.
+func errorAt(line int, format string, args ...any) error {
+	return &Error{Pos: token.Position{Line: line}, Msg: fmt.Sprintf(format, args...)}
+}
 
 // Entry is a single message in a catalog.
 type Entry struct {
-	Key    string
+	Key string
+
+	// Line is the position of the key in its file; 0 when the format provides
+	// no position info.
+	Line int
+
 	Single template.Template            // valid when Plural is nil
 	Plural map[string]template.Template // keyed by CLDR category; nil unless plural
 }
@@ -80,7 +113,12 @@ func (e Entry) Params() ([]template.Param, error) {
 
 // Catalog is the set of messages of a single language.
 type Catalog struct {
-	Tag     language.Tag
+	Tag language.Tag
+
+	// File is the path the catalog was parsed from; empty when it came from
+	// bytes.
+	File string
+
 	Entries map[string]Entry
 }
 
@@ -101,8 +139,14 @@ func ParseFile(path string) (Catalog, error) {
 	}
 	c, err := parse(tag, data)
 	if err != nil {
+		var pe *Error
+		if errors.As(err, &pe) {
+			pe.Pos.Filename = path
+			return Catalog{}, pe
+		}
 		return Catalog{}, fmt.Errorf("%s: %w", path, err)
 	}
+	c.File = path
 	return c, nil
 }
 
@@ -164,10 +208,10 @@ func walkMapping(n node, prefix string, entries map[string]Entry) error {
 	seen := make(map[string]bool)
 	for _, ch := range n.children {
 		if !template.ValidName(ch.key) {
-			return fmt.Errorf("invalid key %q%s: must match [a-z][a-z0-9_]*", ch.key, at(ch.line))
+			return errorAt(ch.line, "invalid key %q: must match [a-z][a-z0-9_]*", ch.key)
 		}
 		if seen[ch.key] {
-			return fmt.Errorf("duplicate key %q%s", ch.key, at(ch.line))
+			return errorAt(ch.line, "duplicate key %q", ch.key)
 		}
 		seen[ch.key] = true
 		key := ch.key
@@ -179,21 +223,22 @@ func walkMapping(n node, prefix string, entries map[string]Entry) error {
 			if err != nil {
 				return err
 			}
-			entries[key] = Entry{Key: key, Single: tmpl}
+			entries[key] = Entry{Key: key, Line: ch.line, Single: tmpl}
 			continue
 		}
 		if len(ch.node.children) == 0 {
-			return fmt.Errorf("key %q%s: empty mapping", key, at(ch.node.line))
+			return errorAt(ch.node.line, "key %q: empty mapping", key)
 		}
-		plural, err := isPluralGroup(key, ch.node)
-		if err != nil {
-			return err
-		}
-		if plural {
-			entry, err := parsePluralGroup(key, ch.node)
+		if group, ok := pluralMarker(ch.node); ok {
+			if len(ch.node.children) > 1 {
+				return errorAt(ch.node.line,
+					"key %q: %q cannot share its mapping with other keys", key, pluralKey)
+			}
+			entry, err := parsePluralGroup(key, group)
 			if err != nil {
 				return err
 			}
+			entry.Line = ch.line
 			entries[key] = entry
 			continue
 		}
@@ -207,39 +252,40 @@ func walkMapping(n node, prefix string, entries map[string]Entry) error {
 func parseTemplate(key string, n node) (template.Template, error) {
 	tmpl, err := template.Parse(n.str)
 	if err != nil {
-		return template.Template{}, fmt.Errorf("key %q%s: %w", key, at(n.line), err)
+		return template.Template{}, errorAt(n.line, "key %q: %v", key, err)
 	}
 	return tmpl, nil
 }
 
-// isPluralGroup reports whether the mapping is a plural group: all of its
-// keys are plural categories. A mix of plural categories and other keys is
-// an error.
-func isPluralGroup(key string, n node) (bool, error) {
-	pluralKeys := 0
+// pluralKey is the mapping key that declares a message's plural forms.
+const pluralKey = "plural"
+
+// pluralMarker returns the plural-forms mapping when n declares one: a child
+// named "plural" whose value is a mapping. A scalar child of that name is an
+// ordinary message, so the only name a locale file cannot use freely is a
+// mapping-valued "plural".
+func pluralMarker(n node) (node, bool) {
 	for _, ch := range n.children {
-		if isPluralCategory(ch.key) {
-			pluralKeys++
+		if ch.key == pluralKey && ch.node.mapping {
+			return ch.node, true
 		}
 	}
-	if pluralKeys == 0 {
-		return false, nil
-	}
-	if pluralKeys != len(n.children) {
-		return false, fmt.Errorf("key %q%s: cannot mix plural categories with other keys", key, at(n.line))
-	}
-	return true, nil
+	return node{}, false
 }
 
 func parsePluralGroup(key string, n node) (Entry, error) {
 	variants := make(map[string]template.Template, len(n.children))
 	for _, ch := range n.children {
+		if !isPluralCategory(ch.key) {
+			return Entry{}, errorAt(ch.line, "key %q: %q is not a plural category (%s)",
+				key, ch.key, strings.Join(PluralCategories, ", "))
+		}
 		if _, ok := variants[ch.key]; ok {
-			return Entry{}, fmt.Errorf("duplicate key %q%s", ch.key, at(ch.line))
+			return Entry{}, errorAt(ch.line, "duplicate key %q", ch.key)
 		}
 		variantKey := key + "." + ch.key
 		if ch.node.mapping {
-			return Entry{}, fmt.Errorf("key %q%s: plural form must be a string", variantKey, at(ch.node.line))
+			return Entry{}, errorAt(ch.node.line, "key %q: plural form must be a string", variantKey)
 		}
 		tmpl, err := parseTemplate(variantKey, ch.node)
 		if err != nil {
@@ -247,25 +293,18 @@ func parsePluralGroup(key string, n node) (Entry, error) {
 		}
 		for _, p := range tmpl.Params() {
 			if p.Name == CountParam && p.Kind == template.KindNumber {
-				return Entry{}, fmt.Errorf("key %q%s: parameter %q must be int in plural forms",
-					variantKey, at(ch.node.line), CountParam)
+				return Entry{}, errorAt(ch.node.line, "key %q: parameter %q must be int in plural forms",
+					variantKey, CountParam)
 			}
 		}
 		variants[ch.key] = tmpl
 	}
 	if _, ok := variants["other"]; !ok {
-		return Entry{}, fmt.Errorf("key %q%s: plural group must define %q", key, at(n.line), "other")
+		return Entry{}, errorAt(n.line, "key %q: plural group must define %q", key, "other")
 	}
 	return Entry{Key: key, Plural: variants}, nil
 }
 
 func isPluralCategory(s string) bool {
 	return slices.Contains(PluralCategories, s)
-}
-
-func at(line int) string {
-	if line == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (line %d)", line)
 }

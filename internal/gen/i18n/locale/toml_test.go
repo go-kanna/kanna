@@ -16,7 +16,7 @@ greeting = "Hello!"
 hello = "Hello, {name}!"
 total_price = "Total: {price:number}"
 
-[items_count]
+[items_count.plural]
 one = "You have {count} item."
 other = "You have {count} items."
 
@@ -59,10 +59,14 @@ func TestParseTOML_error(t *testing.T) {
 		{name: "duplicate key", src: "a = \"x\"\na = \"y\"\n"},
 		{name: "empty table", src: "[user]\n"},
 		{name: "invalid template", src: "greeting = \"Hello, {name\"\n"},
-		{name: "plural without other", src: "[items]\none = \"One\"\n"},
-		{name: "plural mixed with normal keys", src: "[items]\none = \"One\"\ncustom = \"Custom\"\n"},
-		{name: "plural variant not a string", src: "[items.other]\nnested = \"x\"\n"},
-		{name: "plural count as number", src: "[items]\nother = \"{count:number} items\"\n"},
+		{name: "plural without other", src: "[items.plural]\none = \"One\"\n"},
+		{
+			name: "plural sharing its table",
+			src:  "custom = \"Custom\"\n[items]\nlabel = \"x\"\n[items.plural]\nother = \"y\"\n",
+		},
+		{name: "non-category under plural", src: "[items.plural]\nother = \"x\"\ncustom = \"y\"\n"},
+		{name: "plural variant not a string", src: "[items.plural.other]\nnested = \"x\"\n"},
+		{name: "plural count as number", src: "[items.plural]\nother = \"{count:number} items\"\n"},
 	}
 
 	for _, tt := range tests {

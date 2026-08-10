@@ -15,8 +15,9 @@ func TestParseYAML(t *testing.T) {
 greeting: "Hello!"
 hello: "Hello, {name}!"
 items_count:
-  one: "You have {count} item."
-  other: "You have {count} items."
+  plural:
+    one: "You have {count} item."
+    other: "You have {count} items."
 total_price: "Total: {price:number}"
 user:
   not_found: "User not found."
@@ -59,13 +60,44 @@ pricing: *plans
 func TestParseYAML_pluralOtherOnly(t *testing.T) {
 	t.Parallel()
 
-	c := mustParseYAML(t, "items_count:\n  other: \"アイテムが{count}個あります。\"\n")
+	c := mustParseYAML(t, "items_count:\n  plural:\n    other: \"アイテムが{count}個あります。\"\n")
 	entry := c.Entries["items_count"]
 	if entry.Plural == nil {
 		t.Fatal("items_count is not a plural entry")
 	}
 	if got := render(entry.Plural["other"], map[string]string{"count": "5"}); got != "アイテムが5個あります。" {
 		t.Errorf("items_count.other = %q", got)
+	}
+}
+
+// The category names are ordinary keys everywhere except directly under a
+// mapping-valued "plural". Both shapes below used to be misread: the first was
+// silently reinterpreted as a plural group, the second was a hard error.
+func TestParseYAML_categoryNamesAreOrdinaryKeys(t *testing.T) {
+	t.Parallel()
+
+	c := mustParseYAML(t, "errors:\n  other: \"boom\"\nstatus:\n  many: \"多数\"\n  active: \"有効\"\n")
+
+	for _, key := range []string{"errors.other", "status.many", "status.active"} {
+		entry, ok := c.Entries[key]
+		if !ok {
+			t.Errorf("Entries[%q] is missing", key)
+			continue
+		}
+		if entry.Plural != nil {
+			t.Errorf("Entries[%q] was read as a plural group", key)
+		}
+	}
+}
+
+// A scalar child named "plural" is an ordinary message; only a mapping-valued
+// one is the marker.
+func TestParseYAML_scalarPluralIsAnOrdinaryKey(t *testing.T) {
+	t.Parallel()
+
+	c := mustParseYAML(t, "modes:\n  plural: \"Plural\"\n  singular: \"Singular\"\n")
+	if _, ok := c.Entries["modes.plural"]; !ok {
+		t.Errorf("Entries[%q] is missing: %v", "modes.plural", c.Entries)
 	}
 }
 
@@ -88,10 +120,11 @@ func TestParseYAML_error(t *testing.T) {
 		{name: "duplicate key", src: "a: x\nb: y\na: z\n"},
 		{name: "empty mapping", src: "user: {}\n"},
 		{name: "invalid template", src: "greeting: \"Hello, {name\"\n"},
-		{name: "plural without other", src: "items:\n  one: \"One\"\n"},
-		{name: "plural mixed with normal keys", src: "items:\n  one: \"One\"\n  custom: \"Custom\"\n"},
-		{name: "plural variant not a string", src: "items:\n  other:\n    nested: \"x\"\n"},
-		{name: "plural count as number", src: "items:\n  other: \"{count:number} items\"\n"},
+		{name: "plural without other", src: "items:\n  plural:\n    one: \"One\"\n"},
+		{name: "plural sharing its mapping", src: "items:\n  plural:\n    other: \"x\"\n  custom: \"Custom\"\n"},
+		{name: "non-category under plural", src: "items:\n  plural:\n    other: \"x\"\n    custom: \"y\"\n"},
+		{name: "plural variant not a string", src: "items:\n  plural:\n    other:\n      nested: \"x\"\n"},
+		{name: "plural count as number", src: "items:\n  plural:\n    other: \"{count:number} items\"\n"},
 		{name: "multiple documents", src: "a: \"1\"\n---\nb: \"2\"\n"},
 		{name: "malformed second document", src: "a: \"1\"\n---\nb: [\n"},
 	}

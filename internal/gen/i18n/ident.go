@@ -7,12 +7,17 @@ package i18n
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 	"strings"
 )
 
 // importAlias names the runtime package in generated code. buildMessage
 // rejects parameters that would shadow it.
 const importAlias = "i18n"
+
+// localizerFunc is the accessor the generated file declares alongside the
+// constructors. buildModel rejects message keys that would take its name.
+const localizerFunc = "Localizer"
 
 // FuncName converts a message key to an exported Go function name:
 // "user.not_found" becomes "UserNotFound". Keys are ASCII-only (validated
@@ -44,6 +49,13 @@ func ParamName(name string) (string, error) {
 	}
 	if token.IsKeyword(out) {
 		return "", fmt.Errorf("parameter %q maps to the Go keyword %q", name, out)
+	}
+	// A parameter named after a predeclared identifier (error, string, len)
+	// compiles, but shadows it for the reader and trips every shadowing linter
+	// pointed at the generated file. The suffix keeps the parameter usable; the
+	// message key and Arg name stay what the locale file wrote.
+	if types.Universe.Lookup(out) != nil {
+		out += "Arg"
 	}
 	return out, nil
 }

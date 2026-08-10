@@ -9,9 +9,9 @@ import (
 )
 
 // Failed returns the "failed" message.
-func Failed(error string) i18n.Message {
+func Failed(errorArg string) i18n.Message {
 	return i18n.Message{Key: "failed", Args: []i18n.Arg{
-		{Name: "error", Value: error},
+		{Name: "error", Value: errorArg},
 	}}
 }
 

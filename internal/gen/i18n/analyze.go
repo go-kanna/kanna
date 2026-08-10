@@ -1,7 +1,9 @@
 package i18n
 
 import (
+	"errors"
 	"fmt"
+	"go/token"
 	"maps"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 
 	"golang.org/x/text/language"
 
+	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/gen/i18n/locale"
 	"github.com/go-kanna/kanna/internal/gen/i18n/template"
 )
@@ -38,38 +41,47 @@ type Param struct {
 	GoType string
 }
 
-// Warning is a non-fatal finding, such as a locale missing translations.
-type Warning string
-
 // Analyze loads every locale file in dir, builds the generation model from
 // the default locale, and validates the other locales against it.
-func Analyze(dir string, defaultLang language.Tag) (Model, []Warning, error) {
-	catalogs, warnings, err := loadCatalogs(dir)
-	if err != nil {
-		return Model{}, nil, err
+//
+// Problems come back as diagnostics, errors and warnings alike, positioned in
+// the locale files where the positions are known. The model is only meaningful
+// when diag.HasErrors reports false.
+func Analyze(dir string, defaultLang language.Tag) (Model, []diag.Diag) {
+	catalogs, diags := loadCatalogs(dir)
+	if diag.HasErrors(diags) {
+		return Model{}, diags
 	}
-	def, defWarnings, err := defaultCatalog(catalogs, defaultLang, dir)
-	if err != nil {
-		return Model{}, nil, err
+
+	def, defDiags := defaultCatalog(catalogs, defaultLang, dir)
+	diags = append(diags, defDiags...)
+	if diag.HasErrors(diags) {
+		return Model{}, diags
 	}
-	warnings = append(warnings, defWarnings...)
-	model, err := buildModel(def)
-	if err != nil {
-		return Model{}, nil, err
+
+	model, modelDiags := buildModel(def)
+	diags = append(diags, modelDiags...)
+	if diag.HasErrors(diags) {
+		// The index is incomplete, and cross-checking translations against an
+		// incomplete index would blame them for keys the default failed on.
+		return Model{}, diags
 	}
+
 	index := messageIndex(model)
 	for _, c := range catalogs {
 		if c.Tag == def.Tag {
 			continue
 		}
-		w, err := crossCheck(model, index, c)
-		if err != nil {
-			return Model{}, nil, err
-		}
-		warnings = append(warnings, w...)
+		diags = append(diags, crossCheck(model, index, c)...)
 	}
 	model.Catalogs = orderCatalogs(catalogs, def.Tag)
-	return model, warnings, nil
+	return model, diags
+}
+
+// entryPos points a diagnostic at an entry of a catalog. TOML provides no line
+// numbers, in which case the position is the file alone.
+func entryPos(c locale.Catalog, entry locale.Entry) token.Position {
+	return token.Position{Filename: c.File, Line: entry.Line}
 }
 
 // orderCatalogs puts the default locale first and sorts the rest by tag, so
@@ -109,27 +121,27 @@ func messageIndex(m Model) map[string]Message {
 // the right pick). An exact tag match wins outright; when several variants
 // could serve a bare default, the implicit CLDR pick is reported as a
 // warning.
-func defaultCatalog(catalogs []locale.Catalog, lang language.Tag, dir string) (locale.Catalog, []Warning, error) {
+func defaultCatalog(catalogs []locale.Catalog, lang language.Tag, dir string) (locale.Catalog, []diag.Diag) {
 	tags := make([]language.Tag, len(catalogs))
 	for i, c := range catalogs {
 		if c.Tag == lang {
-			return c, nil, nil
+			return c, nil
 		}
 		tags[i] = c.Tag
 	}
 	_, idx, conf := language.NewMatcher(tags).Match(lang)
 	matched := catalogs[idx]
 	if conf < language.High && !sameBase(lang, matched.Tag) {
-		return locale.Catalog{}, nil, fmt.Errorf("default locale %s not found in %s (available: %v)", lang, dir, tags)
+		return locale.Catalog{}, []diag.Diag{diag.Errorf(token.Position{},
+			"default locale %s not found in %s (available: %v)", lang, dir, tags)}
 	}
-	var warnings []Warning
+	var diags []diag.Diag
 	if candidates := sameBaseTags(tags, lang); len(candidates) > 1 {
-		warnings = append(warnings, Warning(fmt.Sprintf(
+		diags = append(diags, diag.Warningf(token.Position{Filename: matched.File},
 			"default locale %s is ambiguous (candidates: %v); using %s, pass an exact -default to override",
-			lang, candidates, matched.Tag,
-		)))
+			lang, candidates, matched.Tag))
 	}
-	return matched, warnings, nil
+	return matched, diags
 }
 
 func sameBaseTags(tags []language.Tag, lang language.Tag) []language.Tag {
@@ -151,62 +163,99 @@ func sameBase(a, b language.Tag) bool {
 // loadCatalogs loads every locale file in dir. Files whose stem is not a
 // language tag (config.yaml and the like) are skipped with a warning rather
 // than failing the run, keeping typos visible without banning cohabitation.
-func loadCatalogs(dir string) ([]locale.Catalog, []Warning, error) {
+// A file that fails to parse is reported and the rest are still read, so one
+// run surfaces every broken file.
+func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read locale directory: %w", err)
+		return nil, []diag.Diag{diag.Errorf(token.Position{}, "read locale directory: %v", err)}
 	}
 	seen := make(map[language.Tag]string)
 	var catalogs []locale.Catalog
-	var warnings []Warning
+	var diags []diag.Diag
 	for _, e := range entries {
 		if e.IsDir() || !locale.SupportedFile(e.Name()) {
 			continue
 		}
+		path := filepath.Join(dir, e.Name())
 		// Pre-check the stem separately from ParseFile so that non-locale
 		// files are skipped with a warning while broken locale files below
 		// still fail the run. The duplicate tag derivation is deliberate.
 		if _, err := locale.TagFromPath(e.Name()); err != nil {
-			warnings = append(warnings, Warning(fmt.Sprintf("skipping %s: %v", e.Name(), err)))
+			diags = append(diags, diag.Warningf(token.Position{Filename: path}, "skipping %s: %v", e.Name(), err))
 			continue
 		}
-		c, err := locale.ParseFile(filepath.Join(dir, e.Name()))
+		c, err := locale.ParseFile(path)
 		if err != nil {
-			return nil, nil, fmt.Errorf("load locale file: %w", err)
+			diags = append(diags, localeDiag(path, err))
+			continue
 		}
 		if prev, ok := seen[c.Tag]; ok {
-			return nil, nil, fmt.Errorf("locale %s defined by both %s and %s", c.Tag, prev, e.Name())
+			diags = append(diags, diag.Errorf(token.Position{Filename: path},
+				"locale %s defined by both %s and %s", c.Tag, prev, e.Name()))
+			continue
 		}
 		seen[c.Tag] = e.Name()
 		catalogs = append(catalogs, c)
 	}
-	if len(catalogs) == 0 {
-		return nil, nil, fmt.Errorf("no locale files found in %s", dir)
+	if len(catalogs) == 0 && !diag.HasErrors(diags) {
+		diags = append(diags, diag.Errorf(token.Position{}, "no locale files found in %s", dir))
 	}
-	return catalogs, warnings, nil
+	return catalogs, diags
 }
 
-func buildModel(def locale.Catalog) (Model, error) {
+// localeDiag converts a locale error into a diagnostic, keeping the position
+// it carries and anchoring position-less ones to the file.
+func localeDiag(path string, err error) diag.Diag {
+	var pe *locale.Error
+	if errors.As(err, &pe) {
+		return diag.Errorf(pe.Pos, "%s", pe.Msg)
+	}
+	return diag.Errorf(token.Position{Filename: path}, "%v", err)
+}
+
+func buildModel(def locale.Catalog) (Model, []diag.Diag) {
 	keys := slices.Sorted(maps.Keys(def.Entries))
 	funcNames := make(map[string]string, len(keys))
 	messages := make([]Message, 0, len(keys))
+	used := usedCategories(def.Tag)
+	var diags []diag.Diag
 	for _, key := range keys {
 		entry := def.Entries[key]
+		pos := entryPos(def, entry)
+		if entry.Plural != nil {
+			if missing := missingCategories(used, entry); len(missing) > 0 {
+				diags = append(diags, diag.Warningf(pos,
+					"locale %s: key %q: missing plural forms %s; counts needing them render with %q",
+					def.Tag, key, strings.Join(missing, ", "), "other"))
+			}
+		}
 		params, err := entry.Params()
 		if err != nil {
-			return Model{}, fmt.Errorf("locale %s: %w", def.Tag, err)
+			diags = append(diags, diag.Errorf(pos, "locale %s: %v", def.Tag, err))
+			continue
 		}
 		msg, err := buildMessage(entry, params)
 		if err != nil {
-			return Model{}, fmt.Errorf("locale %s: %w", def.Tag, err)
+			diags = append(diags, diag.Errorf(pos, "locale %s: %v", def.Tag, err))
+			continue
+		}
+		// The generated file declares one function of its own; no message may
+		// take its name, or the output stops compiling.
+		if msg.FuncName == localizerFunc {
+			diags = append(diags, diag.Errorf(pos,
+				"key %q generates func %s, which the generated package reserves for its accessor", key, localizerFunc))
+			continue
 		}
 		if prev, ok := funcNames[msg.FuncName]; ok {
-			return Model{}, fmt.Errorf("keys %q and %q both generate func %s", prev, key, msg.FuncName)
+			diags = append(diags, diag.Errorf(pos,
+				"keys %q and %q both generate func %s", prev, key, msg.FuncName))
+			continue
 		}
 		funcNames[msg.FuncName] = key
 		messages = append(messages, msg)
 	}
-	return Model{DefaultTag: def.Tag, Messages: messages}, nil
+	return Model{DefaultTag: def.Tag, Messages: messages}, diags
 }
 
 func buildMessage(entry locale.Entry, params []template.Param) (Message, error) {
@@ -243,37 +292,51 @@ func buildMessage(entry locale.Entry, params []template.Param) (Message, error) 
 // crossCheck validates a translation against the generation model: unknown
 // keys, shape mismatches, and unknown parameters are errors, while keys
 // missing from the translation are warnings because the runtime falls back
-// to the default language. index maps message keys to model messages and is
-// built once by Analyze.
-func crossCheck(model Model, index map[string]Message, other locale.Catalog) ([]Warning, error) {
+// to the default language. Every problem in the catalog is reported, not just
+// the first. index maps message keys to model messages and is built once by
+// Analyze.
+func crossCheck(model Model, index map[string]Message, other locale.Catalog) []diag.Diag {
+	var diags []diag.Diag
+	used := usedCategories(other.Tag)
 	for _, key := range slices.Sorted(maps.Keys(other.Entries)) {
 		entry := other.Entries[key]
+		pos := entryPos(other, entry)
 		defMsg, ok := index[key]
 		if !ok {
-			return nil, fmt.Errorf("locale %s: key %q does not exist in default locale %s", other.Tag, key, model.DefaultTag)
+			diags = append(diags, diag.Errorf(pos,
+				"locale %s: key %q does not exist in default locale %s", other.Tag, key, model.DefaultTag))
+			continue
 		}
 		if (entry.Plural != nil) != defMsg.Plural {
-			return nil, fmt.Errorf("locale %s: key %q: plural shape differs from default locale", other.Tag, key)
+			diags = append(diags, diag.Errorf(pos,
+				"locale %s: key %q: plural shape differs from default locale", other.Tag, key))
+			continue
+		}
+		if entry.Plural != nil {
+			if missing := missingCategories(used, entry); len(missing) > 0 {
+				diags = append(diags, diag.Warningf(pos,
+					"locale %s: key %q: missing plural forms %s; counts needing them render with %q",
+					other.Tag, key, strings.Join(missing, ", "), "other"))
+			}
 		}
 		params, err := entry.Params()
 		if err != nil {
-			return nil, fmt.Errorf("locale %s: %w", other.Tag, err)
+			diags = append(diags, diag.Errorf(pos, "locale %s: %v", other.Tag, err))
+			continue
 		}
 		for _, p := range params {
 			at := slices.IndexFunc(defMsg.Params, func(dp Param) bool { return dp.Name == p.Name })
 			if at < 0 {
-				return nil, fmt.Errorf(
-					"locale %s: key %q: parameter %q does not exist in default locale",
-					other.Tag, key, p.Name,
-				)
+				diags = append(diags, diag.Errorf(pos,
+					"locale %s: key %q: parameter %q does not exist in default locale", other.Tag, key, p.Name))
+				continue
 			}
 			// A bare placeholder cannot be distinguished from an explicit
 			// :string annotation, so only non-string kinds are compared.
 			if p.Kind != template.KindString && template.GoType(p.Kind) != defMsg.Params[at].GoType {
-				return nil, fmt.Errorf(
+				diags = append(diags, diag.Errorf(pos,
 					"locale %s: key %q: parameter %q has type %s, but default locale has %s",
-					other.Tag, key, p.Name, template.GoType(p.Kind), defMsg.Params[at].GoType,
-				)
+					other.Tag, key, p.Name, template.GoType(p.Kind), defMsg.Params[at].GoType))
 			}
 		}
 	}
@@ -284,7 +347,8 @@ func crossCheck(model Model, index map[string]Message, other locale.Catalog) ([]
 		}
 	}
 	if len(missing) > 0 {
-		return []Warning{Warning(fmt.Sprintf("locale %s: missing keys: %s", other.Tag, strings.Join(missing, ", ")))}, nil
+		diags = append(diags, diag.Warningf(token.Position{Filename: other.File},
+			"locale %s: missing keys: %s", other.Tag, strings.Join(missing, ", ")))
 	}
-	return nil, nil
+	return diags
 }

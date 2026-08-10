@@ -12,6 +12,8 @@ import (
 
 	"golang.org/x/text/language"
 
+	"github.com/go-kanna/kanna/internal/diag"
+
 	rti18n "github.com/go-kanna/kanna/i18n"
 	i18n "github.com/go-kanna/kanna/internal/gen/i18n"
 )
@@ -72,6 +74,26 @@ func TestRender_emptyModel(t *testing.T) {
 	}
 }
 
+// A model with messages but no catalogs only arises outside the CLI, but the
+// promise stands there too: no unused import, because format.Source would not
+// strip it and the file would not compile.
+func TestRender_messagesWithoutCatalogs(t *testing.T) {
+	t.Parallel()
+
+	got, err := i18n.Render(i18n.Model{Messages: []i18n.Message{
+		{Key: "greeting", FuncName: "Greeting", Params: []i18n.Param{}},
+	}}, "messages")
+	if err != nil {
+		t.Fatalf("Render() returned error: %v", err)
+	}
+	if strings.Contains(string(got), "x/text/language") {
+		t.Errorf("output imports the language package nothing uses:\n%s", got)
+	}
+	if !strings.Contains(string(got), "func Greeting()") {
+		t.Errorf("output lacks the constructor:\n%s", got)
+	}
+}
+
 func TestRender_invalidPackageName(t *testing.T) {
 	t.Parallel()
 
@@ -89,9 +111,9 @@ func TestRender_invalidPackageName(t *testing.T) {
 func TestRender_embeddedCatalogRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	model, _, err := i18n.Analyze(filepath.Join("testdata", "basic", "locales"), language.English)
-	if err != nil {
-		t.Fatal(err)
+	model, ds := i18n.Analyze(filepath.Join("testdata", "basic", "locales"), language.English)
+	if diag.HasErrors(ds) {
+		t.Fatalf("Analyze() reported errors: %s", diag.Format(ds))
 	}
 
 	catalogs := make([]rti18n.Catalog, 0, len(model.Catalogs))
@@ -163,12 +185,9 @@ func TestRender_embeddedCatalogRoundTrip(t *testing.T) {
 
 func renderBasic(t *testing.T) []byte {
 	t.Helper()
-	model, warnings, err := i18n.Analyze(filepath.Join("testdata", "basic", "locales"), language.English)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("Analyze() returned warnings: %v", warnings)
+	model, ds := i18n.Analyze(filepath.Join("testdata", "basic", "locales"), language.English)
+	if len(ds) != 0 {
+		t.Fatalf("Analyze() reported diagnostics: %s", diag.Format(ds))
 	}
 	src, err := i18n.Render(model, "messages")
 	if err != nil {

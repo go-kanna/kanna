@@ -133,6 +133,7 @@ func TestRunUsageErrors(t *testing.T) {
 		{name: "unknown flag", args: []string{"-bogus"}},
 		{name: "unexpected argument", args: []string{"extra"}},
 		{name: "invalid default language", args: []string{"-default", "not a tag"}},
+		{name: "-out that is not a Go file", args: []string{"-out", "messages/"}},
 	}
 
 	for _, tt := range tests {
@@ -273,6 +274,58 @@ func TestRunCheckReportsAnalysisErrors(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "does not exist in default locale") {
 		t.Errorf("stderr does not explain the failure: %s", stderr)
+	}
+}
+
+// -check tells a hand-written file apart from a stale one: "run go generate"
+// would send the user to a command that refuses the file outright.
+func TestRunCheckDistinguishesHandWritten(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	files := locales()
+	files["messages/messages.gen.go"] = "package messages\n\n// Written by hand.\n"
+	writeTree(t, dir, files)
+
+	code, _, stderr := runCLI(t, dir, "-check")
+	if code != exit.Error {
+		t.Fatalf("Run(-check) = %d, want %d\nstderr: %s", code, exit.Error, stderr)
+	}
+	if !strings.Contains(stderr, "hand-written") {
+		t.Errorf("stderr does not name the hand-written file: %s", stderr)
+	}
+	if strings.Contains(stderr, "out of date") {
+		t.Errorf("stderr sends the user to go generate: %s", stderr)
+	}
+}
+
+// A license header prepended by a company-wide tool must not hide the
+// generated-code marker: regeneration keeps working.
+func TestRunRegeneratesBehindLicenseHeader(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTree(t, dir, locales())
+	if code, _, stderr := runCLI(t, dir); code != exit.OK {
+		t.Fatalf("generate failed: %d\nstderr: %s", code, stderr)
+	}
+
+	out := filepath.Join(dir, "messages", "messages.gen.go")
+	//nolint:gosec // the path is under t.TempDir
+	src, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	licensed := "// Copyright 2026 Acme Corp.\n\n" + string(src)
+	//nolint:gosec // the path is under t.TempDir
+	if err := os.WriteFile(out, []byte(licensed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Change a locale so regeneration has something to write.
+	writeTree(t, dir, map[string]string{"locales/en.yaml": "greeting: \"Hi!\"\nhello: \"Hi, {name}!\"\n"})
+	if code, _, stderr := runCLI(t, dir); code != exit.OK {
+		t.Fatalf("regeneration over a licensed file = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 	}
 }
 

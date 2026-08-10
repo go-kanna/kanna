@@ -10,8 +10,12 @@ package i18n
 const CountParam = "count"
 
 // PluralCategories lists the CLDR plural categories in canonical order. They
-// are the valid keys of Entry.Plural.
-var PluralCategories = []string{"zero", "one", "two", "few", "many", "other"}
+// are the valid keys of Entry.Plural. Each call returns a fresh slice: this
+// package is published, and a caller mutating a shared one would corrupt every
+// other caller's view of what a plural form is.
+func PluralCategories() []string {
+	return []string{"zero", "one", "two", "few", "many", "other"}
+}
 
 // Kind is the declared kind of a template parameter. It decides how an
 // argument value is formatted, not what type it must have.

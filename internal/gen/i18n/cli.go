@@ -1,7 +1,6 @@
 package i18n
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,7 +10,9 @@ import (
 
 	"golang.org/x/text/language"
 
+	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/exit"
+	"github.com/go-kanna/kanna/internal/output"
 )
 
 // Config holds the options for a single generation run. Each field corresponds
@@ -77,17 +78,19 @@ func (c CLI) Run(args []string) int {
 		return exit.Usage
 	}
 
+	if filepath.Ext(cfg.Out) != ".go" {
+		fmt.Fprintf(c.Err, "-out %q must name a .go file\n", cfg.Out)
+		return exit.Usage
+	}
+
 	return c.generate(cfg, tag)
 }
 
 func (c CLI) generate(cfg Config, tag language.Tag) int {
-	model, warnings, err := Analyze(c.resolve(cfg.Locales), tag)
-	if err != nil {
-		fmt.Fprintln(c.Err, err)
+	model, ds := Analyze(output.Resolve(c.Dir, cfg.Locales), tag)
+	c.printDiags(ds)
+	if diag.HasErrors(ds) {
 		return exit.Error
-	}
-	for _, w := range warnings {
-		fmt.Fprintln(c.Err, "warning:", w)
 	}
 
 	pkg := cfg.Package
@@ -101,16 +104,16 @@ func (c CLI) generate(cfg Config, tag language.Tag) int {
 		return exit.Error
 	}
 
-	out := c.resolve(cfg.Out)
+	out := output.Resolve(c.Dir, cfg.Out)
 	if cfg.Check {
-		if err := checkUpToDate(out, src); err != nil {
+		if err := output.CheckUpToDate(out, src); err != nil {
 			fmt.Fprintln(c.Err, err)
 			return exit.Error
 		}
 		return exit.OK
 	}
 
-	if err := writeOutput(out, src); err != nil {
+	if err := output.Write(out, src); err != nil {
 		fmt.Fprintln(c.Err, err)
 		return exit.Error
 	}
@@ -118,68 +121,15 @@ func (c CLI) generate(cfg Config, tag language.Tag) int {
 	return exit.OK
 }
 
-// resolve interprets a path against Dir. An absolute path is already anchored,
-// and an empty Dir means the process working directory, so both pass through.
-func (c CLI) resolve(path string) string {
-	if c.Dir == "" || filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(c.Dir, path)
-}
-
-// resolveAbs is resolve followed by Abs, for deriving the package name from a
-// relative -out such as "." whose base would otherwise name nothing.
+// resolveAbs resolves against Dir and then Abs, for deriving the package name
+// from a relative -out such as "." whose base would otherwise name nothing.
 func (c CLI) resolveAbs(path string) string {
-	resolved := c.resolve(path)
+	resolved := output.Resolve(c.Dir, path)
 	abs, err := filepath.Abs(resolved)
 	if err != nil {
 		return resolved
 	}
 	return abs
-}
-
-// checkUpToDate reports whether the file at path holds exactly src, separating
-// staleness from failures that say nothing about it.
-func checkUpToDate(path string, src []byte) error {
-	existing, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%s has not been generated yet (run go generate)", path)
-	case err != nil:
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	if !bytes.Equal(existing, src) {
-		return fmt.Errorf("%s is out of date (run go generate)", path)
-	}
-	return nil
-}
-
-// writeOutput writes the generated source, refusing to replace a file that was
-// not generated: -out points wherever the flag says, and a typo must not cost
-// anyone a hand-written file.
-func writeOutput(path string, src []byte) error {
-	existing, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case err == nil:
-		if bytes.Equal(existing, src) {
-			return nil
-		}
-		if !bytes.HasPrefix(existing, []byte("// Code generated ")) {
-			return fmt.Errorf("refusing to overwrite %s: it lacks a generated-code header", path)
-		}
-	case !errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("read existing output: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	// Generated Go source should be readable like the rest of the package,
-	// matching what gofmt/go generate produce by default.
-	//nolint:gosec // generated source is meant to be world-readable
-	if err := os.WriteFile(path, src, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
 }
 
 // parseFlags reads args into a Config. The middle return value reports whether
@@ -238,4 +188,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  -check            verify the output is up to date instead of writing it")
 	fmt.Fprintln(w, "  --version         print version")
 	fmt.Fprintln(w, "  -h, --help        show this help")
+}
+
+func (c CLI) printDiags(ds []diag.Diag) {
+	if len(ds) == 0 {
+		return
+	}
+	fmt.Fprintln(c.Err, diag.Format(ds))
 }
