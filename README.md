@@ -18,7 +18,7 @@ layer as it lands.
 | `kanna-mapper`  | struct-to-struct mapping                     | available |
 | `kanna-orm`     | query helpers from model structs             | planned   |
 | `kanna-migrate` | SQL migrations from model structs            | planned   |
-| `kanna-i18n`    | typed message constructors from locale files | planned   |
+| `kanna-i18n`    | typed message constructors from locale files | available |
 
 Nothing is released yet, so import paths and flags may still move.
 
@@ -405,6 +405,137 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 a field can be handled: renamed with `map:"Name"`, excluded from the domain side with `map:"-"`, excluded from the wire
 side with `-ignore` where there is no tag to write, converted through a registered function, and converted through one
 that can fail. CI regenerates it and fails if the output would change.
+
+## kanna-i18n
+
+Generates typed message constructors from a directory of locale files — and compiles the translations themselves into
+the output, so nothing is parsed or read at run time.
+
+### Install
+
+```sh
+go get -tool github.com/go-kanna/kanna/cmd/kanna-i18n
+go get github.com/go-kanna/kanna/i18n
+```
+
+Two lines, because this generator has a runtime half: both the generated code and the code calling `Localize` import
+`github.com/go-kanna/kanna/i18n`, which carries the CLDR plural rules, locale-aware number formatting, and language
+fallback that depend on run-time values.
+
+### Use
+
+One file per language, named by its BCP 47 tag:
+
+```yaml
+# locales/en.yaml
+greeting: "Hello!"
+hello: "Hello, {name}!"
+items_count:
+  plural:
+    one: "You have {count} item."
+    other: "You have {count} items."
+total_price: "Total: {price:number}"
+user:
+  not_found: "User not found."
+```
+
+```go
+//go:generate go tool kanna-i18n
+```
+
+With the defaults, that one line reads `locales/` and writes `messages/messages.gen.go`: a constructor per message, a
+`Localizer` accessor, and the translations of every language as an embedded bundle.
+
+```go
+// Hello returns the "hello" message.
+func Hello(name string) i18n.Message {
+	return i18n.Message{Key: "hello", Args: []i18n.Arg{
+		{Name: "name", Value: name},
+	}}
+}
+
+// Localizer renders this package's messages in the compiled locale best
+// matching tag.
+func Localizer(tag language.Tag) i18n.Localizer {
+	return bundle.Localizer(tag)
+}
+
+// bundle holds every locale this package was generated from.
+var bundle = i18n.NewBundle("en",
+	i18n.Catalog{Lang: "en", Entries: map[string]i18n.Entry{
+		"hello": {Single: i18n.Template{{Text: "Hello, "}, {Param: "name"}, {Text: "!"}}},
+		// ...
+	}},
+)
+```
+
+Calling it takes no setup at all:
+
+```go
+en := messages.Localizer(language.English)
+fmt.Println(en.Localize(messages.Hello("World")))
+```
+
+The default language (`-default`, `en` unless said otherwise) defines the constructor signatures; every other locale is
+validated against it at generation time. At run time, a message missing from the requested language falls back through
+the language's parents (`en-GB` falls back to `en`) and finally to the default language, and requesting a language that
+was never compiled in gets the default outright.
+
+### Locale files
+
+The locale directory is flat — one file per language, no recursion — and the filename stem is the language: `en.yaml`,
+`pt-BR.yaml`, `ja.toml`. YAML (`.yaml`, `.yml`) and TOML (`.toml`) both work. Files whose stem is not a language tag are
+skipped with a warning, so a stray `config.yaml` does not fail the run.
+
+Nested mappings become dot-joined keys, and keys become constructor names: `user.not_found` generates `UserNotFound()`.
+Keys and parameter names match `[a-z][a-z0-9_]*` per segment.
+
+A message declares its plural forms under an explicit `plural` mapping, keyed by CLDR category (`zero`, `one`, `two`,
+`few`, `many`, `other`) and always defining `other`. The marker is explicit so intent is never guessed from shape: keys
+that merely happen to be named `one` or `other` are ordinary nesting, and the only name a locale file cannot use freely
+is a mapping-valued `plural`. The generated constructor takes `count int` first, and the count picks the variant under
+the rendering language's own plural rules — Japanese has no `one` form, and that is fine.
+
+A plural group that skips forms its language does use gets a warning, because those counts silently render with
+`other`: Russian providing only `other` is missing `one`, `few`, and `many`, while Japanese providing only `other` is
+complete.
+
+### Placeholders
+
+| Form            | Meaning                                                                                 |
+|-----------------|-----------------------------------------------------------------------------------------|
+| `{name}`        | a string parameter                                                                      |
+| `{name:int}`    | a plain integer, rendered as-is — counts, IDs                                           |
+| `{name:number}` | a `float64`, rendered with the locale's conventions: `1,234.56` in en, `1.234,56` in de |
+| `{{` and `}}`   | literal braces                                                                          |
+
+A bare placeholder inherits an explicit kind annotated elsewhere in the same message; conflicting annotations are an
+error.
+
+### Validation
+
+Errors fail the generation: a key a translation has but the default language does not, a plural group where the default
+has a plain message (or the reverse), a parameter the default language never mentions, and conflicting kind annotations
+across plural variants.
+
+Missing translations are warnings, not errors, because the runtime falls back to the default language. The generated
+code never breaks when a locale lags behind; it renders the default until the translation lands.
+
+### Flags
+
+| Flag              | Meaning                                                                    |
+|-------------------|----------------------------------------------------------------------------|
+| `-locales <dir>`  | directory containing locale files (default: `locales`)                     |
+| `-default <lang>` | default language defining the generated signatures (default: `en`)         |
+| `-out <path>`     | output file path (default: `messages/messages.gen.go`)                     |
+| `-package <name>` | package name of the generated file (default: base of the output directory) |
+| `-check`          | verify the output is up to date instead of writing it                      |
+
+### Example
+
+[`examples/i18n`](examples/i18n) renders the same messages in English and Japanese — plurals, locale-formatted numbers,
+and a fallback for a missing translation — with zero run-time setup. CI regenerates it and fails if the output would
+change.
 
 ## Development
 
