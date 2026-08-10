@@ -64,9 +64,9 @@ linters:
         linters:
           - gocyclo    # Each table case adds branches, so cyclomatic complexity climbs naturally and isn't a quality signal there.
           - maintidx   # Same: table-driven tests grow long by design and the maintainability index is not a useful signal there.
-      - path: i18n
+      - path: ^(i18n|internal/gen/i18n)/.*_test\.go$
         linters:
-          - gosmopolitan # Locale fixtures legitimately contain CJK literals; everything else stays guarded.
+          - gosmopolitan # Locale fixtures in these tests legitimately contain CJK literals; everything else stays guarded.
 
 issues:
   max-issues-per-linter: 0
