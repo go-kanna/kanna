@@ -28,6 +28,12 @@ jobs:
         with:
           version: v2.12.2
 
+      - name: golangci-lint (orm/integration)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          working-directory: orm/integration
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +45,21 @@ jobs:
 
       - name: Run tests
         run: make test
+
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Start databases
+        run: docker compose -f orm/integration/compose.yaml up -d --wait
+
+      - name: Run integration tests
+        run: make test-integration
 
   build:
     runs-on: ubuntu-latest
