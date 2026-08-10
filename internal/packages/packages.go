@@ -117,11 +117,21 @@ func LoadNames(patterns []string, cfg Config) (map[string]string, error) {
 		return nil, fmt.Errorf("packages: Load: %w", err)
 	}
 
+	// A package that failed to load has no name, and a caller resolving
+	// selectors would report that as "cannot resolve" — blaming the selector for
+	// a problem in the package it names. Report the real failure instead.
+	var errs []error
 	names := make(map[string]string, len(pkgs))
 	for _, p := range pkgs {
-		if p.PkgPath != "" {
+		for _, e := range p.Errors {
+			errs = append(errs, errors.New(e.Error()))
+		}
+		if p.PkgPath != "" && p.Name != "" {
 			names[p.PkgPath] = p.Name
 		}
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return names, nil

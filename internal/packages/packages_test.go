@@ -1,6 +1,7 @@
 package packages_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -51,6 +52,55 @@ func TestLoad_TypesInfo(t *testing.T) {
 				t.Errorf("TypesInfo populated = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadNames(t *testing.T) {
+	t.Parallel()
+
+	names, err := packages.LoadNames(
+		[]string{"github.com/go-kanna/kanna/internal/packages", "github.com/go-kanna/kanna/mapper"},
+		packages.Config{},
+	)
+	if err != nil {
+		t.Fatalf("LoadNames() error = %v", err)
+	}
+
+	want := map[string]string{
+		"github.com/go-kanna/kanna/internal/packages": "packages",
+		"github.com/go-kanna/kanna/mapper":            "mapper",
+	}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("LoadNames() = %v, want %v", names, want)
+	}
+}
+
+func TestLoadNames_NoPatterns(t *testing.T) {
+	t.Parallel()
+
+	names, err := packages.LoadNames(nil, packages.Config{})
+	if err != nil {
+		t.Fatalf("LoadNames(nil) error = %v", err)
+	}
+	if len(names) != 0 {
+		t.Errorf("LoadNames(nil) = %v, want empty", names)
+	}
+}
+
+// A package that cannot be loaded has no name. Returning it as an empty string
+// would make the caller blame whatever selector named it.
+func TestLoadNames_ReportsLoadErrors(t *testing.T) {
+	t.Parallel()
+
+	names, err := packages.LoadNames(
+		[]string{"github.com/go-kanna/kanna/internal/no-such-package"},
+		packages.Config{},
+	)
+	if err == nil {
+		t.Fatalf("LoadNames() = %v, want an error", names)
+	}
+	if len(names) != 0 {
+		t.Errorf("LoadNames() returned names alongside the error: %v", names)
 	}
 }
 
