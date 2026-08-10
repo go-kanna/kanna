@@ -24,7 +24,18 @@ func generate(cfg Config, env Env) error {
 	}
 	outDir, outFile := splitOutput(cfg.Output, env.GoFile)
 
-	ld, err := loadAll(cfg, env, scope, outDir)
+	// Resolving a selector needs each imported package's name, not its types.
+	names, err := packages.LoadNames(scope.importPaths(), packages.Config{Dir: env.Dir})
+	if err != nil {
+		return fmt.Errorf("resolve package names: %w", err)
+	}
+
+	patterns, err := loadPatterns(cfg, env, scope, names, outDir)
+	if err != nil {
+		return err
+	}
+
+	ld, err := loadAll(patterns, env.Dir)
 	if err != nil {
 		return err
 	}
@@ -36,11 +47,6 @@ func generate(cfg Config, env Env) error {
 	pkgName, outPkgPath, err := outputIdentity(cfg, env, outDir, outPkg)
 	if err != nil {
 		return err
-	}
-
-	names := make(map[string]string, len(ld.byPath))
-	for path, pkg := range ld.byPath {
-		names[path] = pkg.Name
 	}
 
 	pairs := make([]pairSpec, 0, len(cfg.Pairs))
@@ -134,7 +140,13 @@ type loaded struct {
 	byDir  map[string]*packages.Package
 }
 
-func loadAll(cfg Config, env Env, scope importScope, outDir string) (*loaded, error) {
+// loadPatterns lists the packages the run refers to, which is what gets loaded
+// in full.
+//
+// Only the packages actually named are included. Every import of every file in
+// the directory would also resolve every selector, but it would type-check a
+// great deal of code the output never mentions.
+func loadPatterns(cfg Config, env Env, scope importScope, names map[string]string, outDir string) ([]string, error) {
 	patterns := []string{"."}
 	if outDir != "." {
 		// A missing or empty output directory is fine: the file lands in a
@@ -147,36 +159,53 @@ func loadAll(cfg Config, env Env, scope importScope, outDir string) (*loaded, er
 			patterns = append(patterns, dirPattern(outDir))
 		}
 	}
-	patterns = append(patterns, scope.importPaths()...)
 	patterns = append(patterns, cfg.ConverterPkgs...)
+
+	refs := make([]TypeRef, 0, len(cfg.Pairs)*2+len(cfg.Ignores))
 	for _, pair := range cfg.Pairs {
-		for _, ref := range []TypeRef{pair.Src, pair.Dst} {
-			if ref.IsImportPath() {
-				patterns = append(patterns, ref.Pkg)
-			}
-		}
+		refs = append(refs, pair.Src, pair.Dst)
 	}
 	for _, ig := range cfg.Ignores {
-		if ig.Type.IsImportPath() {
-			patterns = append(patterns, ig.Type.Pkg)
+		refs = append(refs, ig.Type)
+	}
+
+	for _, ref := range refs {
+		switch {
+		case ref.Pkg == "":
+			// A type in the output package, which is already covered above.
+		case ref.IsImportPath():
+			patterns = append(patterns, ref.Pkg)
+		default:
+			path, err := scope.resolveSelector(ref.Pkg, names)
+			if err != nil {
+				return nil, err
+			}
+			patterns = append(patterns, path)
 		}
 	}
-	slices.Sort(patterns)
-	patterns = slices.Compact(patterns)
 
+	slices.Sort(patterns)
+
+	return slices.Compact(patterns), nil
+}
+
+func loadAll(patterns []string, dir string) (*loaded, error) {
 	// Reading mapper.Register calls means reading what an expression refers to,
 	// which the loader only keeps when asked.
-	res, err := packages.Load(patterns, packages.Config{Dir: env.Dir, TypesInfo: true})
+	res, err := packages.Load(patterns, packages.Config{Dir: dir, TypesInfo: true})
 	if err != nil {
 		return nil, fmt.Errorf("load packages: %w", err)
 	}
 	pkgs := res.Packages
+
+	// Load already folds a dependency's failure into the package that imports
+	// it, so the roots carry everything worth reporting.
 	var errs []error
-	packages.Visit(pkgs, nil, func(p *packages.Package) {
+	for _, p := range pkgs {
 		for _, e := range p.Errors {
 			errs = append(errs, errors.New(e.Error()))
 		}
-	})
+	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -242,6 +271,15 @@ func outputIdentity(cfg Config, env Env, outDir string, outPkg *packages.Package
 	if outPkg != nil {
 		path = outPkg.PkgPath
 	}
+
+	// Every file in a directory has to agree on the package clause, so -package
+	// cannot override what is already there: the result would be a file that
+	// nothing can compile alongside its neighbours.
+	if cfg.Package != "" && outPkg != nil && cfg.Package != outPkg.Name {
+		return "", "", fmt.Errorf("-package %s conflicts with package %s, which %s already declares",
+			cfg.Package, outPkg.Name, outDir)
+	}
+
 	name = cfg.Package
 	if name == "" && outPkg != nil {
 		name = outPkg.Name
@@ -308,8 +346,12 @@ func resolvePkgPath(ref TypeRef, scope importScope, names map[string]string, out
 
 func checkUpToDate(path string, code []byte) error {
 	existing, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return fmt.Errorf("%s is out of date: %w (run go generate)", path, err)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%s has not been generated yet (run go generate)", path)
+	case err != nil:
+		// A permission or I/O failure says nothing about staleness.
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 	if !bytes.Equal(existing, code) {
 		return fmt.Errorf("%s is out of date (run go generate)", path)

@@ -21,15 +21,6 @@ type Package = packages.Package
 // callers can inspect load failures without importing the upstream package.
 type Error = packages.Error
 
-// Visit walks the import graph rooted at pkgs, calling pre before a package's
-// dependencies and post after them; either may be nil. Each package is visited
-// once.
-//
-// Load reports errors only on the packages it was asked for, so a generator that
-// must not proceed on incomplete type information uses this to reach the
-// failures in their dependencies too.
-var Visit = packages.Visit
-
 // Config controls how packages are loaded.
 type Config struct {
 	// Dir is the directory the patterns are resolved against. Empty means the
@@ -99,6 +90,41 @@ func Load(patterns []string, cfg Config) (*Result, error) {
 	}
 
 	return &Result{Packages: pkgs, Fset: fset}, nil
+}
+
+// LoadNames maps each pattern's import path to its package name, without
+// type-checking anything.
+//
+// A generator that has to turn a package selector such as "model" into an import
+// path needs the names and nothing more. Loading those packages in full would
+// type-check code the output never refers to, which for a directory's worth of
+// imports means most of the standard library.
+func LoadNames(patterns []string, cfg Config) (map[string]string, error) {
+	if len(patterns) == 0 {
+		return map[string]string{}, nil
+	}
+
+	pc := &packages.Config{
+		Mode: packages.NeedName,
+		Dir:  cfg.Dir,
+	}
+	if tags := joinTags(cfg.BuildTags); tags != "" {
+		pc.BuildFlags = []string{"-tags=" + tags}
+	}
+
+	pkgs, err := packages.Load(pc, patterns...)
+	if err != nil {
+		return nil, fmt.Errorf("packages: Load: %w", err)
+	}
+
+	names := make(map[string]string, len(pkgs))
+	for _, p := range pkgs {
+		if p.PkgPath != "" {
+			names[p.PkgPath] = p.Name
+		}
+	}
+
+	return names, nil
 }
 
 // joinTags concatenates tag values with a single space, dropping empties.
