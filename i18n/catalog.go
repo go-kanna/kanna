@@ -52,14 +52,12 @@ type Segment struct {
 
 // Template is a message template, already split into segments. What was
 // written as "Hello, {name}!" arrives here as three segments.
-type Template struct {
-	Segments []Segment
-}
+type Template []Segment
 
 // render assembles the template, resolving each placeholder through resolve.
 func (t Template) render(resolve func(name string, kind Kind) string) string {
 	var b []byte
-	for _, s := range t.Segments {
+	for _, s := range t {
 		if s.Param == "" {
 			b = append(b, s.Text...)
 			continue

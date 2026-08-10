@@ -53,7 +53,7 @@ func newBundle() *i18n.Bundle {
 }
 
 func tmpl(segs ...i18n.Segment) i18n.Template {
-	return i18n.Template{Segments: segs}
+	return i18n.Template(segs)
 }
 
 func text(s string) i18n.Segment {
