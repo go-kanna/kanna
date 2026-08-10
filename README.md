@@ -431,8 +431,9 @@ One file per language, named by its BCP 47 tag:
 greeting: "Hello!"
 hello: "Hello, {name}!"
 items_count:
-  one: "You have {count} item."
-  other: "You have {count} items."
+  plural:
+    one: "You have {count} item."
+    other: "You have {count} items."
 total_price: "Total: {price:number}"
 user:
   not_found: "User not found."
@@ -489,9 +490,15 @@ skipped with a warning, so a stray `config.yaml` does not fail the run.
 Nested mappings become dot-joined keys, and keys become constructor names: `user.not_found` generates `UserNotFound()`.
 Keys and parameter names match `[a-z][a-z0-9_]*` per segment.
 
-A mapping whose keys are all CLDR plural categories (`zero`, `one`, `two`, `few`, `many`, `other`) is a plural group; it
-must define `other`. The generated constructor takes `count int` first, and the count picks the variant under the
-rendering language's own plural rules — Japanese has no `one` form, and that is fine.
+A message declares its plural forms under an explicit `plural` mapping, keyed by CLDR category (`zero`, `one`, `two`,
+`few`, `many`, `other`) and always defining `other`. The marker is explicit so intent is never guessed from shape: keys
+that merely happen to be named `one` or `other` are ordinary nesting, and the only name a locale file cannot use freely
+is a mapping-valued `plural`. The generated constructor takes `count int` first, and the count picks the variant under
+the rendering language's own plural rules — Japanese has no `one` form, and that is fine.
+
+A plural group that skips forms its language does use gets a warning, because those counts silently render with
+`other`: Russian providing only `other` is missing `one`, `few`, and `many`, while Japanese providing only `other` is
+complete.
 
 ### Placeholders
 
