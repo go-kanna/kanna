@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/exit"
+	"github.com/go-kanna/kanna/internal/output"
 	"github.com/go-kanna/kanna/internal/packages"
 	"github.com/go-kanna/kanna/internal/scan"
 )
@@ -88,7 +89,7 @@ func (c CLI) Run(args []string) int {
 }
 
 func (c CLI) generate(cfg Config) int {
-	dest := c.resolve(cfg.Destination)
+	dest := output.Resolve(c.Dir, cfg.Destination)
 
 	absDest, err := filepath.Abs(dest)
 	if err != nil {
@@ -250,16 +251,6 @@ func (c CLI) applyExcludes(targets []Target, excludes []string, pkgPath string) 
 	return slices.DeleteFunc(slices.Clone(targets), func(tg Target) bool {
 		return excluded[tg.Name]
 	})
-}
-
-// resolve interprets a path against Dir. An absolute path is already anchored,
-// and an empty Dir means the process working directory, so both pass through.
-func (c CLI) resolve(path string) string {
-	if c.Dir == "" || filepath.IsAbs(path) {
-		return path
-	}
-
-	return filepath.Join(c.Dir, path)
 }
 
 func (c CLI) printDiags(ds []diag.Diag) {

@@ -1,7 +1,6 @@
 package mapper
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"go/token"
@@ -11,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/go-kanna/kanna/internal/output"
 	"github.com/go-kanna/kanna/internal/packages"
 )
 
@@ -109,9 +109,11 @@ func generate(cfg Config, env Env) error {
 	}
 	outPath := filepath.Join(outAbs, outFile)
 	if cfg.Check {
-		return checkUpToDate(outPath, code)
+		//nolint:wrapcheck // the message already names the file and the remedy
+		return output.CheckUpToDate(outPath, code)
 	}
-	return writeOutput(outPath, code)
+	//nolint:wrapcheck // the message already names the file and the remedy
+	return output.Write(outPath, code)
 }
 
 // defaultOutputFile names the generated file when $GOFILE is unset, which is
@@ -342,41 +344,4 @@ func resolvePkgPath(ref TypeRef, scope importScope, names map[string]string, out
 	default:
 		return scope.resolveSelector(ref.Pkg, names)
 	}
-}
-
-func checkUpToDate(path string, code []byte) error {
-	existing, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%s has not been generated yet (run go generate)", path)
-	case err != nil:
-		// A permission or I/O failure says nothing about staleness.
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	if !bytes.Equal(existing, code) {
-		return fmt.Errorf("%s is out of date (run go generate)", path)
-	}
-	return nil
-}
-
-func writeOutput(path string, code []byte) error {
-	existing, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case err == nil:
-		if bytes.Equal(existing, code) {
-			return nil
-		}
-		if !bytes.HasPrefix(existing, []byte("// Code generated ")) {
-			return fmt.Errorf("refusing to overwrite %s: it lacks a generated-code header", path)
-		}
-	case !errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("read existing output: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
-	}
-	if err := os.WriteFile(path, code, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
 }
