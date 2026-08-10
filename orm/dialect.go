@@ -1,0 +1,89 @@
+package orm
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Dialect abstracts SQL differences between database engines.
+type Dialect interface {
+	// Placeholder returns the bind parameter placeholder for the given
+	// 1-based index. MySQL returns "?" regardless of index; PostgreSQL
+	// returns "$1", "$2", etc.
+	Placeholder(index int) string
+
+	// QuoteIdent quotes an identifier (table name, column name) to safely
+	// handle SQL reserved words. MySQL uses backticks; PostgreSQL uses
+	// double quotes.
+	QuoteIdent(name string) string
+
+	// UseReturning reports whether INSERT should use a RETURNING clause
+	// to retrieve the auto-generated primary key (PostgreSQL) rather
+	// than relying on LastInsertId (MySQL).
+	UseReturning() bool
+
+	// ReturningClause returns the RETURNING clause appended to INSERT
+	// statements. Returns an empty string for dialects that do not
+	// support RETURNING (MySQL).
+	ReturningClause(pk string) string
+}
+
+// MySQL is the Dialect for MySQL / MariaDB.
+var MySQL Dialect = mysqlDialect{}
+
+// PostgreSQL is the Dialect for PostgreSQL.
+var PostgreSQL Dialect = postgresDialect{}
+
+type mysqlDialect struct{}
+
+func (mysqlDialect) Placeholder(_ int) string        { return "?" }
+func (mysqlDialect) QuoteIdent(name string) string   { return "`" + name + "`" }
+func (mysqlDialect) UseReturning() bool              { return false }
+func (mysqlDialect) ReturningClause(_ string) string { return "" }
+
+type postgresDialect struct{}
+
+func (postgresDialect) Placeholder(index int) string     { return fmt.Sprintf("$%d", index) }
+func (postgresDialect) QuoteIdent(name string) string    { return `"` + name + `"` }
+func (postgresDialect) UseReturning() bool               { return true }
+func (postgresDialect) ReturningClause(pk string) string { return ` RETURNING "` + pk + `"` }
+
+// rewritePlaceholders converts ? placeholders to the dialect's form ($1, $2, …
+// for PostgreSQL; MySQL keeps ? and returns early). Question marks inside
+// single-quoted strings and quoted identifiers are left alone, with a doubled
+// closing quote staying inside its region. PostgreSQL's JSONB ?/?|/?&
+// operators are indistinguishable from placeholders at this level — use the
+// jsonb_exists* functions in clauses instead.
+func rewritePlaceholders(d Dialect, query string) string {
+	if _, ok := d.(mysqlDialect); ok {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 8)
+	idx := 1
+	var quote byte
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		switch {
+		case quote != 0:
+			b.WriteByte(c)
+			if c == quote {
+				if i+1 < len(query) && query[i+1] == quote {
+					b.WriteByte(query[i+1])
+					i++
+				} else {
+					quote = 0
+				}
+			}
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+			b.WriteByte(c)
+		case c == '?':
+			b.WriteString(d.Placeholder(idx))
+			idx++
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
