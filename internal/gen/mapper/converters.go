@@ -69,6 +69,13 @@ func extractConverters(pkgs []*packages.Package, outputPkgPath string) (converte
 	var table converterTable
 	var errs []error
 	for _, pkg := range pkgs {
+		// Reading a call means reading what it refers to. Without that the scan
+		// cannot say whether a call is a registration, and reporting nothing
+		// would look like a package with no converters.
+		if pkg.TypesInfo == nil {
+			errs = append(errs, fmt.Errorf("package %s was loaded without type information", pkg.PkgPath))
+			continue
+		}
 		for _, file := range pkg.Syntax {
 			ast.Inspect(file, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
