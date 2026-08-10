@@ -156,6 +156,52 @@ func TestResolvePlansEmbeddedDstError(t *testing.T) {
 	}
 }
 
+// A getter returning a value must not be preferred over the field it wraps when
+// the field's own type already matches: reading through it turns a nil pointer
+// into a pointer to a zero, which is the distinction the pointer was carrying.
+func TestResolvePlansPrefersTheMatchingRead(t *testing.T) {
+	t.Parallel()
+
+	opt := fixture(t, "optional")
+	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+		Fset: opt.Fset,
+		Pairs: []mapper.PairSpec{
+			{Src: types.NewPointer(namedType(t, opt, "Wire")), Dst: namedType(t, opt, "Domain")},
+		},
+		Direction: mapper.DirectionTo,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := `WireToDomain(*optional.Wire) optional.Domain
+  Note = .Note direct`
+	if got := mapper.DescribePlan(plans[0]); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A tag on a promoted field keeps applying. Matching by name regardless would
+// copy a field the author excluded, with nothing to say it happened.
+func TestResolvePlansPromotedFieldHonorsTags(t *testing.T) {
+	t.Parallel()
+
+	errcases := fixture(t, "errcases")
+	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+		Fset: errcases.Fset,
+		Pairs: []mapper.PairSpec{
+			{Src: namedType(t, errcases, "PromotedSrc"), Dst: namedType(t, errcases, "PromotedDst")},
+		},
+		Direction: mapper.DirectionTo,
+	})
+	if err == nil {
+		t.Fatal("expected the excluded field to be reported as unmapped")
+	}
+	if !strings.Contains(err.Error(), "PromotedDst.Secret") {
+		t.Errorf("error %q does not name the excluded field", err)
+	}
+}
+
 func TestResolvePlansErrors(t *testing.T) {
 	t.Parallel()
 

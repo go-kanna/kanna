@@ -96,3 +96,21 @@ type NeedConvSrc struct{ When time.Time }
 
 // NeedConvDst is the suggestion-message target.
 type NeedConvDst struct{ When string }
+
+// PromotedBase carries a field its author excluded from mapping.
+type PromotedBase struct {
+	Secret string `map:"-"`
+}
+
+// PromotedSrc promotes Secret through embedding, where the tag has to keep
+// applying.
+type PromotedSrc struct {
+	PromotedBase
+	Name string
+}
+
+// PromotedDst has the field the excluded one would otherwise fill.
+type PromotedDst struct {
+	Secret string
+	Name   string
+}

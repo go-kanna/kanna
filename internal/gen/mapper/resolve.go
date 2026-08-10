@@ -39,13 +39,18 @@ type resolver struct {
 	cfg         resolveConfig
 	plans       []*funcPlan
 	usedIgnores map[fieldKey]bool
+	badTags     map[token.Position]bool
 	errs        []error
 }
 
 // resolvePlans builds mapping plans for all pairs in the requested
 // directions. Errors are collected and reported together.
 func resolvePlans(cfg resolveConfig) ([]*funcPlan, error) {
-	r := &resolver{cfg: cfg, usedIgnores: make(map[fieldKey]bool)}
+	r := &resolver{
+		cfg:         cfg,
+		usedIgnores: make(map[fieldKey]bool),
+		badTags:     make(map[token.Position]bool),
+	}
 	r.buildShells()
 	for _, p := range r.plans {
 		r.resolveFields(p)
@@ -175,13 +180,16 @@ func (r *resolver) resolveFields(p *funcPlan) {
 		if !f.Exported() {
 			continue
 		}
-		tag, skip := r.fieldTag(dstStruct, i)
-		if skip {
-			continue
-		}
+		// -ignore comes first: it is the escape hatch for a destination the
+		// author cannot edit, so it has to apply even to a field whose tag this
+		// generator would reject, and a map:"-" field still marks its entry used.
 		key := fieldKey{PkgPath: dstNamed.Obj().Pkg().Path(), Type: dstNamed.Obj().Name(), Field: f.Name()}
 		if r.cfg.Ignores[key] {
 			r.usedIgnores[key] = true
+			continue
+		}
+		tag, skip := r.fieldTag(dstStruct, i)
+		if skip {
 			continue
 		}
 		chosen, ok := r.matchSrcField(p, srcNamed, f, tag, srcFields)
@@ -224,7 +232,13 @@ func (r *resolver) fieldTag(st *types.Struct, i int) (string, bool) {
 		return "", true
 	}
 	if !token.IsIdentifier(tag) {
-		r.errs = append(r.errs, fmt.Errorf("%s: invalid map tag %q", r.pos(st.Field(i)), tag))
+		// With both directions generated, a struct is visited once as a source
+		// and once as a destination, so report each bad tag only the first time.
+		pos := r.pos(st.Field(i))
+		if !r.badTags[pos] {
+			r.badTags[pos] = true
+			r.errs = append(r.errs, fmt.Errorf("%s: invalid map tag %q", pos, tag))
+		}
 		return "", true
 	}
 	return tag, false
@@ -294,13 +308,68 @@ func (r *resolver) matchSrcField(
 			r.pos(f), namedLabel(p.dst), f.Name(), typeLabel(p.src)))
 		return nil, false
 	}
-	if obj, index, _ := types.LookupFieldOrMethod(p.src, true, srcNamed.Obj().Pkg(), f.Name()); obj != nil {
-		if v, ok := obj.(*types.Var); ok && v.IsField() && v.Exported() && len(index) > 1 {
-			return v, true
-		}
+	if v, ok := r.promotedField(p.src, srcNamed.Obj().Pkg(), f.Name()); ok {
+		return v, true
 	}
 	r.unmappedError(p, f)
 	return nil, false
+}
+
+// promotedField returns the field named name reached through an embedded
+// struct, if it is eligible to be matched by name.
+//
+// A tag on the promoted field disqualifies it. The tag says the field is not
+// simply "name" — map:"-" excludes it, and a rename points it at some other
+// destination — and honoring the name anyway would copy a field the author
+// asked not to. The caller reports it as unmapped instead, which is at least
+// visible.
+func (r *resolver) promotedField(src types.Type, pkg *types.Package, name string) (*types.Var, bool) {
+	obj, index, _ := types.LookupFieldOrMethod(src, true, pkg, name)
+	if obj == nil || len(index) <= 1 {
+		return nil, false
+	}
+
+	v, ok := obj.(*types.Var)
+	if !ok || !v.IsField() || !v.Exported() {
+		return nil, false
+	}
+
+	st, i, ok := declaringStruct(src, index)
+	if !ok {
+		return nil, false
+	}
+	if _, tagged := reflect.StructTag(st.Tag(i)).Lookup("map"); tagged {
+		return nil, false
+	}
+
+	return v, true
+}
+
+// declaringStruct walks an embedding path to the struct that declares the final
+// field, and returns it with that field's index.
+func declaringStruct(t types.Type, index []int) (*types.Struct, int, bool) {
+	_, st, ok := structNamed(t)
+	if !ok {
+		return nil, 0, false
+	}
+
+	for _, i := range index[:len(index)-1] {
+		if i >= st.NumFields() {
+			return nil, 0, false
+		}
+		_, next, ok := structNamed(st.Field(i).Type())
+		if !ok {
+			return nil, 0, false
+		}
+		st = next
+	}
+
+	last := index[len(index)-1]
+	if last >= st.NumFields() {
+		return nil, 0, false
+	}
+
+	return st, last, true
 }
 
 func (r *resolver) unmappedError(p *funcPlan, f *types.Var) {
@@ -312,14 +381,29 @@ func (r *resolver) unmappedError(p *funcPlan, f *types.Var) {
 	r.errs = append(r.errs, errors.New(msg))
 }
 
-// buildFieldPlan resolves the conversion for one field. The getter's
-// result type is tried first, then the raw field type.
+// buildFieldPlan resolves the conversion for one field.
+//
+// A read whose type already matches the destination wins, wherever it comes
+// from; only then does the getter's result type come before the raw field. The
+// order matters for a nil-able field wrapped in a getter that returns a value:
+// preferring the getter would turn a nil pointer into a pointer to a zero, which
+// is exactly the distinction the pointer was carrying.
 func (r *resolver) buildFieldPlan(p *funcPlan, dstField, srcVar *types.Var) (fieldPlan, bool) {
-	for _, read := range readCandidates(p.src, srcVar) {
+	cands := readCandidates(p.src, srcVar)
+	dst := types.Unalias(dstField.Type())
+
+	for _, read := range cands {
+		if types.Identical(types.Unalias(read.typ), dst) {
+			return fieldPlan{dstName: dstField.Name(), dstType: dstField.Type(), read: read, conv: opDirect{}}, true
+		}
+	}
+
+	for _, read := range cands {
 		if conv, err := r.resolveOp(read.typ, dstField.Type()); err == nil {
 			return fieldPlan{dstName: dstField.Name(), dstType: dstField.Type(), read: read, conv: conv}, true
 		}
 	}
+
 	r.conversionError(p, dstField, srcVar)
 	return fieldPlan{}, false
 }
