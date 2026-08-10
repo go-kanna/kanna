@@ -342,7 +342,7 @@ func EmployeeFromEmployeev1(src *employeev1.Employee) (model.Employee, error) {
 	if src == nil {
 		return model.Employee{}, nil
 	}
-	v0, err0 := uuid.Parse(src.GetId())
+	v1, err0 := uuid.Parse(src.GetId())
 	if err0 != nil {
 		return model.Employee{}, fmt.Errorf("map model.Employee.ID: %w", err0)
 	}
