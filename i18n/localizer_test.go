@@ -289,7 +289,7 @@ func TestLocalizer_pluralMinIntCount(t *testing.T) {
 func TestBundle_Localizer_germanNumberFormat(t *testing.T) {
 	t.Parallel()
 
-	b := i18n.NewBundle("en",
+	b := i18n.NewBundle("de",
 		i18n.Catalog{Lang: "de", Entries: map[string]i18n.Entry{
 			"total_price": {Single: tmpl(text("Gesamt: "), number("price"))},
 		}},
@@ -339,11 +339,12 @@ func TestBundle_Localizer_parentChainFallback(t *testing.T) {
 	}
 }
 
-func TestBundle_Localizer_withoutDefaultCatalog(t *testing.T) {
+// An unmatched request resolves to the default language, which every bundle
+// carries a catalog for.
+func TestBundle_Localizer_unmatchedTagUsesDefault(t *testing.T) {
 	t.Parallel()
 
-	// English itself is never included.
-	b := i18n.NewBundle("en",
+	b := i18n.NewBundle("ja",
 		i18n.Catalog{Lang: "ja", Entries: map[string]i18n.Entry{
 			"greeting": {Single: tmpl(text("こんにちは！"))},
 		}},

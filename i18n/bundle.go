@@ -22,12 +22,15 @@ type Bundle struct {
 }
 
 // NewBundle builds a Bundle from embedded catalogs. Messages missing from a
-// requested language fall back to defaultLang.
+// requested language fall back to defaultLang, which every bundle must carry a
+// catalog for. Passing no catalogs at all is allowed and yields a bundle whose
+// Localizers render every message as its key.
 //
-// It panics on a malformed language tag or a duplicated language: the catalogs
-// are generated from files kanna-i18n already validated, so either means the
-// caller assembled the bundle by hand and got it wrong, and there is no later
-// moment at which the mistake would be more visible.
+// It panics on a malformed language tag, a duplicated language, or a missing
+// default catalog: the catalogs are generated from files kanna-i18n already
+// validated, so any of these means the caller assembled the bundle by hand and
+// got it wrong, and there is no later moment at which the mistake would be
+// more visible.
 func NewBundle(defaultLang string, catalogs ...Catalog) *Bundle {
 	b := &Bundle{
 		defaultTag: mustTag(defaultLang),
@@ -44,6 +47,10 @@ func NewBundle(defaultLang string, catalogs ...Catalog) *Bundle {
 		b.printers[tag] = message.NewPrinter(tag)
 	}
 
+	if _, ok := b.catalogs[b.defaultTag]; len(catalogs) > 0 && !ok {
+		panic(fmt.Sprintf("i18n: default locale %s has no catalog", b.defaultTag))
+	}
+
 	b.buildMatcher()
 	b.buildChains()
 	return b
@@ -58,9 +65,8 @@ func mustTag(lang string) language.Tag {
 }
 
 // buildMatcher caches the matcher and its tag list so Localizer does not pay
-// for matcher construction on every call. The default language, when its
-// catalog is present, comes first so that unmatched requests resolve to it;
-// the rest are sorted for determinism.
+// for matcher construction on every call. The default language comes first so
+// that unmatched requests resolve to it; the rest are sorted for determinism.
 //
 // With no catalogs at all the matcher stays nil, which is what makes Localizer
 // hand out its zero value instead of matching against nothing.
@@ -68,20 +74,15 @@ func (b *Bundle) buildMatcher() {
 	if len(b.catalogs) == 0 {
 		return
 	}
-	tags := make([]language.Tag, 0, len(b.catalogs))
-	if _, ok := b.catalogs[b.defaultTag]; ok {
-		tags = append(tags, b.defaultTag)
-	}
-	rest := make([]language.Tag, 0, len(b.catalogs))
+	rest := make([]language.Tag, 0, len(b.catalogs)-1)
 	for t := range b.catalogs {
 		if t != b.defaultTag {
 			rest = append(rest, t)
 		}
 	}
 	slices.SortFunc(rest, func(a, b language.Tag) int { return strings.Compare(a.String(), b.String()) })
-	tags = append(tags, rest...)
-	b.tags = tags
-	b.matcher = language.NewMatcher(tags)
+	b.tags = append([]language.Tag{b.defaultTag}, rest...)
+	b.matcher = language.NewMatcher(b.tags)
 }
 
 // buildChains precomputes the fallback chain of every matchable tag. The chain
@@ -99,7 +100,7 @@ func (b *Bundle) buildChains() {
 				layers = append(layers, b.layer(t))
 			}
 		}
-		if _, ok := b.catalogs[b.defaultTag]; ok && !seen[b.defaultTag] {
+		if !seen[b.defaultTag] {
 			layers = append(layers, b.layer(b.defaultTag))
 		}
 		b.chains[i] = layers
