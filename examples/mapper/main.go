@@ -19,11 +19,13 @@ import (
 
 func main() {
 	emp := model.Employee{
-		ID:        uuid.New(),
-		Name:      "Alice",
+		ID: uuid.New(),
+		// The domain name; the wire calls it Name, which the map tag pairs up.
+		FullName:  "Alice",
 		HiredAt:   time.Date(2024, time.April, 1, 9, 30, 0, 0, time.UTC),
 		Address:   model.Address{City: "Tokyo", Street: "1-2-3"},
 		Nicknames: []string{"al", "ali"},
+		SyncedAt:  time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC),
 	}
 
 	// The domain types have no counterpart on the wire — a UUID becomes a
@@ -40,7 +42,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("from wire: id=%s name=%s hired=%s\n", back.ID, back.Name, back.HiredAt.Format(time.DateOnly))
+	fmt.Printf("from wire: id=%s name=%s hired=%s\n", back.ID, back.FullName, back.HiredAt.Format(time.DateOnly))
 
 	// The wire side is nil-safe throughout: a nil message maps to the zero
 	// value rather than panicking.
@@ -48,7 +50,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("from nil:  zero value: %t\n", empty.ID == uuid.Nil && empty.Name == "")
+	fmt.Printf("from nil:  zero value: %t\n", empty.ID == uuid.Nil && empty.FullName == "")
+
+	// SyncedAt is tagged map:"-", so it takes no part in either direction and
+	// comes back zero however it was set.
+	fmt.Printf("excluded:  SyncedAt dropped: %t\n", back.SyncedAt.IsZero())
 
 	// A malformed id is reported with the field that produced it.
 	if _, err := mapper.EmployeeFromEmployeev1(&employeev1.Employee{Id: "not-a-uuid"}); err != nil {

@@ -43,6 +43,18 @@ type Employee struct {
 	HiredAt   *Date
 	Address   *Address
 	Nicknames []string
+
+	// Revision is owned by the server and has no domain counterpart, so the
+	// directive excludes it with -ignore. The type is generated, so there is
+	// nowhere here to put a tag.
+	Revision int32
+}
+
+func (x *Employee) GetRevision() int32 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
 }
 
 func (x *Employee) GetId() string {

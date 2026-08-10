@@ -401,8 +401,10 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 
 ### Example
 
-[`examples/mapper`](examples/mapper) maps a domain aggregate onto protobuf-shaped wire types and back, including a
-conversion that fails. CI regenerates it and fails if the output would change.
+[`examples/mapper`](examples/mapper) maps a domain aggregate onto protobuf-shaped wire types and back, covering each way
+a field can be handled: renamed with `map:"Name"`, excluded from the domain side with `map:"-"`, excluded from the wire
+side with `-ignore` where there is no tag to write, converted through a registered function, and converted through one
+that can fail. CI regenerates it and fails if the output would change.
 
 ## Development
 

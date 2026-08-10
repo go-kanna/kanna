@@ -15,7 +15,7 @@ import (
 func EmployeeToEmployeev1(src model.Employee) *employeev1.Employee {
 	return &employeev1.Employee{
 		Id:        converters.UUIDToString(src.ID),
-		Name:      src.Name,
+		Name:      src.FullName,
 		HiredAt:   converters.ToDate(src.HiredAt),
 		Address:   AddressToEmployeev1(src.Address),
 		Nicknames: src.Nicknames,
@@ -33,7 +33,7 @@ func EmployeeFromEmployeev1(src *employeev1.Employee) (model.Employee, error) {
 	}
 	return model.Employee{
 		ID:        v1,
-		Name:      src.GetName(),
+		FullName:  src.GetName(),
 		HiredAt:   converters.ToTime(src.GetHiredAt()),
 		Address:   AddressFromEmployeev1(src.GetAddress()),
 		Nicknames: src.GetNicknames(),
