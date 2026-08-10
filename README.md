@@ -1,6 +1,6 @@
 # kanna
 
-Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, migrations, seeding. Each
+Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, i18n. Each
 works on its own and emits plain Go with no runtime reflection.
 
 Your structs are the source of truth. Point a generator at a package and it writes the code you would otherwise write by
@@ -17,7 +17,6 @@ layer as it lands.
 | `kanna-fixture` | test fixtures from model structs             | available |
 | `kanna-mapper`  | struct-to-struct mapping                     | available |
 | `kanna-orm`     | query helpers from model structs             | planned   |
-| `kanna-migrate` | SQL migrations from model structs            | planned   |
 | `kanna-i18n`    | typed message constructors from locale files | available |
 
 Nothing is released yet, so import paths and flags may still move.
