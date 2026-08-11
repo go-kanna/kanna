@@ -203,3 +203,40 @@ type Peer struct {
 		}
 	}
 }
+
+func TestEmitRejectsShadowedQualifier(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadFileAs(t, "ids", `package ids
+
+//kanna:table
+type User struct {
+	ID    int
+	Posts []Post `+"`"+`orm:"has_many,foreign_key:user_id"`+"`"+`
+}
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+}
+`)
+	structs, ds := scan.Structs([]*packages.Package{pkg})
+	if diag.HasErrors(ds) {
+		t.Fatalf("scan: %s", diag.Format(ds))
+	}
+	tables, ds := orm.Tables(structs)
+	if diag.HasErrors(ds) {
+		t.Fatalf("plan: %s", diag.Format(ds))
+	}
+
+	_, err := orm.Emit(orm.EmitParams{
+		PackageName: "query",
+		SourceName:  "ids",
+		SourcePath:  "example.com/ids",
+		Tables:      tables,
+	})
+	if err == nil || !strings.Contains(err.Error(), "shadow") {
+		t.Fatalf("err = %v, want a shadowing error", err)
+	}
+}

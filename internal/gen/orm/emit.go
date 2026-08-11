@@ -74,6 +74,7 @@ type fileEmit struct {
 	stdlibImports []string
 	extraImports  []importEntry
 	seenImports   map[string]bool
+	qualifiers    []string
 	rels          map[string][]relEmit
 }
 
@@ -84,6 +85,7 @@ func newFileEmit(p EmitParams) (*fileEmit, error) {
 		rels:        make(map[string][]relEmit, len(p.Tables)),
 	}
 
+	f.qualifiers = append(f.qualifiers, p.SourceName)
 	for _, t := range p.Tables {
 		for _, field := range t.Fields {
 			if field.CreatedAt || field.UpdatedAt {
@@ -102,7 +104,25 @@ func newFileEmit(p EmitParams) (*fileEmit, error) {
 		}
 	}
 
+	for _, name := range f.qualifiers {
+		if reservedLocals[name] {
+			return nil, fmt.Errorf(
+				"package qualifier %q would be shadowed by a local the generated code declares; rename or alias the package", name)
+		}
+	}
+
 	return f, nil
+}
+
+// reservedLocals are identifiers the generated function bodies declare. A
+// package qualified by one of them would be shadowed mid-function, so Emit
+// refuses the combination instead of writing code that cannot compile.
+var reservedLocals = map[string]bool{
+	"v": true, "cols": true, "dest": true, "col": true, "i": true, "err": true,
+	"q": true, "db": true, "rows": true, "id": true, "ids": true, "now": true,
+	"related": true, "byFK": true, "byPK": true, "pairs": true, "targetIDs": true,
+	"grouped": true, "tIDs": true, "items": true, "tid": true, "r": true,
+	"joined": true, "results": true, "ctx": true, "includesPK": true,
 }
 
 // addTypeDeps imports the packages a rendered type string mentions. The
@@ -123,6 +143,7 @@ func (f *fileEmit) addTypeDeps(deps []PkgRef) {
 		if isStdlib(d.Path) {
 			f.seenImports[d.Path] = true
 			f.stdlibImports = append(f.stdlibImports, d.Path)
+			f.qualifiers = append(f.qualifiers, d.Name)
 			continue
 		}
 		f.addImport(d.Path, d.Name)
@@ -186,6 +207,7 @@ func (f *fileEmit) addImport(path, alias string) {
 		return
 	}
 	f.seenImports[path] = true
+	f.qualifiers = append(f.qualifiers, alias)
 
 	entry := importEntry{Path: path}
 	if parts := strings.Split(path, "/"); alias != parts[len(parts)-1] {
