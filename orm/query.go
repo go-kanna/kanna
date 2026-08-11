@@ -809,6 +809,16 @@ func (q *Query[T]) buildUpsert(columns []string) string {
 	}
 
 	d := q.db.dialect()
+	if len(updateCols) == 0 {
+		// Nothing to update on conflict. MySQL has no DO NOTHING, so it sets
+		// the key to itself; PostgreSQL says it directly.
+		if _, ok := d.(mysqlDialect); ok {
+			fmt.Fprintf(&b, " ON DUPLICATE KEY UPDATE %s = %s", q.qi(q.pk), q.qi(q.pk))
+		} else {
+			fmt.Fprintf(&b, " ON CONFLICT (%s) DO NOTHING", q.qi(q.pk))
+		}
+		return b.String()
+	}
 	if _, ok := d.(mysqlDialect); ok {
 		sets := make([]string, len(updateCols))
 		for i, col := range updateCols {

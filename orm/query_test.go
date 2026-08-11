@@ -1262,3 +1262,39 @@ func TestUpdateWithNoSettableColumnsErrors(t *testing.T) {
 		t.Errorf("no query should run, got %v", tq.Queries)
 	}
 }
+
+func TestUpsertWithNoUpdatableColumnsMySQL(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	q := newTestMarkerQuery(tq)
+
+	m := testMarker{ID: 1}
+	if err := q.Upsert(t.Context(), &m); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := "INSERT INTO `markers` (`id`, `created_at`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `id` = `id`"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestUpsertWithNoUpdatableColumnsPostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestMarkerQuery(tq)
+
+	m := testMarker{ID: 1}
+	if err := q.Upsert(t.Context(), &m); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := `INSERT INTO "markers" ("id", "created_at") VALUES ($1, $2) ON CONFLICT ("id") DO NOTHING`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
