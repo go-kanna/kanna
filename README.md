@@ -527,7 +527,7 @@ user:
 //go:generate go tool kanna-i18n
 ```
 
-With the defaults, that one line reads `locales/` and writes `messages/messages.gen.go`: a constructor per message, a
+With the defaults, that one line reads `locales/` and writes `messages/i18n_gen.go`: a constructor per message, a
 `Localizer` accessor, and the translations of every language as an embedded bundle.
 
 ```go
@@ -611,7 +611,7 @@ code never breaks when a locale lags behind; it renders the default until the tr
 |-------------------|----------------------------------------------------------------------------|
 | `-locales <dir>`  | directory containing locale files (default: `locales`)                     |
 | `-default <lang>` | default language defining the generated signatures (default: `en`)         |
-| `-out <path>`     | output file path (default: `messages/messages.gen.go`)                     |
+| `-destination <dir>` | output directory for the generated file (default: `messages`)           |
 | `-package <name>` | package name of the generated file (default: base of the output directory) |
 | `-check`          | verify the output is up to date instead of writing it                      |
 

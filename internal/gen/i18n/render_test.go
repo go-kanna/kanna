@@ -25,7 +25,7 @@ func TestRender_golden(t *testing.T) {
 
 	got := renderBasic(t)
 
-	golden := filepath.Join("testdata", "basic", "messages.gen.go.golden")
+	golden := filepath.Join("testdata", "basic", "i18n_gen.go.golden")
 	if *update {
 		if err := os.WriteFile(golden, got, 0o600); err != nil {
 			t.Fatal(err)
@@ -44,7 +44,7 @@ func TestRender_outputParses(t *testing.T) {
 	t.Parallel()
 
 	got := renderBasic(t)
-	if _, err := parser.ParseFile(token.NewFileSet(), "messages.gen.go", got, parser.AllErrors); err != nil {
+	if _, err := parser.ParseFile(token.NewFileSet(), "i18n_gen.go", got, parser.AllErrors); err != nil {
 		t.Errorf("generated code does not parse: %v", err)
 	}
 }
@@ -69,7 +69,7 @@ func TestRender_emptyModel(t *testing.T) {
 	if strings.Contains(string(got), "import") {
 		t.Errorf("empty model output contains an unused import:\n%s", got)
 	}
-	if _, err := parser.ParseFile(token.NewFileSet(), "messages.gen.go", got, parser.AllErrors); err != nil {
+	if _, err := parser.ParseFile(token.NewFileSet(), "i18n_gen.go", got, parser.AllErrors); err != nil {
 		t.Errorf("generated code does not parse: %v", err)
 	}
 }

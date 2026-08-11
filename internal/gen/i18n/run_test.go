@@ -54,7 +54,7 @@ func readOut(t *testing.T, dir string) string {
 	t.Helper()
 
 	//nolint:gosec // the path is under t.TempDir
-	src, err := os.ReadFile(filepath.Join(dir, "messages", "messages.gen.go"))
+	src, err := os.ReadFile(filepath.Join(dir, "messages", "i18n_gen.go"))
 	if err != nil {
 		t.Fatalf("read generated file: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestRun(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(stdout, filepath.Join("messages", "messages.gen.go")) {
+	if !strings.Contains(stdout, filepath.Join("messages", "i18n_gen.go")) {
 		t.Errorf("stdout does not report the written file: %q", stdout)
 	}
 	if !strings.Contains(stderr, "missing keys: hello") {
@@ -106,13 +106,13 @@ func TestRunFlags(t *testing.T) {
 	})
 
 	code, _, stderr := runCLI(t, dir,
-		"-locales", "i10n", "-default", "de", "-out", "gen/msg.gen.go", "-package", "msg")
+		"-locales", "i10n", "-default", "de", "-destination", "gen", "-package", "msg")
 	if code != exit.OK {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 	}
 
 	//nolint:gosec // the path is under t.TempDir
-	src, err := os.ReadFile(filepath.Join(dir, "gen", "msg.gen.go"))
+	src, err := os.ReadFile(filepath.Join(dir, "gen", "i18n_gen.go"))
 	if err != nil {
 		t.Fatalf("read generated file: %v", err)
 	}
@@ -133,7 +133,6 @@ func TestRunUsageErrors(t *testing.T) {
 		{name: "unknown flag", args: []string{"-bogus"}},
 		{name: "unexpected argument", args: []string{"extra"}},
 		{name: "invalid default language", args: []string{"-default", "not a tag"}},
-		{name: "-out that is not a Go file", args: []string{"-out", "messages/"}},
 	}
 
 	for _, tt := range tests {
@@ -239,7 +238,7 @@ func TestRunCheck(t *testing.T) {
 	if !strings.Contains(stderr, "has not been generated yet") {
 		t.Errorf("stderr does not distinguish a missing file: %s", stderr)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "messages", "messages.gen.go")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "messages", "i18n_gen.go")); !os.IsNotExist(err) {
 		t.Error("-check wrote a file")
 	}
 
@@ -284,7 +283,7 @@ func TestRunCheckDistinguishesHandWritten(t *testing.T) {
 
 	dir := t.TempDir()
 	files := locales()
-	files["messages/messages.gen.go"] = "package messages\n\n// Written by hand.\n"
+	files["messages/i18n_gen.go"] = "package messages\n\n// Written by hand.\n"
 	writeTree(t, dir, files)
 
 	code, _, stderr := runCLI(t, dir, "-check")
@@ -310,7 +309,7 @@ func TestRunRegeneratesBehindLicenseHeader(t *testing.T) {
 		t.Fatalf("generate failed: %d\nstderr: %s", code, stderr)
 	}
 
-	out := filepath.Join(dir, "messages", "messages.gen.go")
+	out := filepath.Join(dir, "messages", "i18n_gen.go")
 	//nolint:gosec // the path is under t.TempDir
 	src, err := os.ReadFile(out)
 	if err != nil {
@@ -335,7 +334,7 @@ func TestRunRefusesToOverwriteHandWritten(t *testing.T) {
 
 	dir := t.TempDir()
 	files := locales()
-	files["messages/messages.gen.go"] = "package messages\n\n// Written by hand.\n"
+	files["messages/i18n_gen.go"] = "package messages\n\n// Written by hand.\n"
 	writeTree(t, dir, files)
 
 	code, _, stderr := runCLI(t, dir)
