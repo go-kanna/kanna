@@ -1298,3 +1298,19 @@ func TestUpsertWithNoUpdatableColumnsPostgreSQL(t *testing.T) {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }
+
+func TestUpsertRequiresPrimaryKey(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	q := newTestQuery(tq)
+
+	u := testUser{Name: "no id"}
+	err := q.Upsert(t.Context(), &u)
+	if err == nil {
+		t.Fatal("expected error for Upsert with zero primary key, got nil")
+	}
+	if len(tq.Queries) != 0 {
+		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}
