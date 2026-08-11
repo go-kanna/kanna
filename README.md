@@ -391,8 +391,8 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 | Flag                   | Meaning                                                        |
 |------------------------|----------------------------------------------------------------|
 | `-types <SRC:DST>`     | pairs to map, comma-separated; repeatable. `*` marks a pointer |
-| `-converter-pkg <pkg>` | package holding the `mapper.Register` calls; repeatable        |
-| `-ignore <TYPE.FIELD>` | destination fields to skip; repeatable                         |
+| `-converters <pkg>`  | package holding the `mapper.Register` calls; repeatable          |
+| `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                     |
 | `-output <path>`       | output directory, or a file path ending in `.go`               |
 | `-direction <dir>`     | `both` (default), `to`, or `from`                              |
 | `-package <name>`      | output package name (default: `$GOPACKAGE`)                    |
@@ -402,7 +402,7 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 
 [`examples/mapper`](examples/mapper) maps a domain aggregate onto protobuf-shaped wire types and back, covering each way
 a field can be handled: renamed with `map:"Name"`, excluded from the domain side with `map:"-"`, excluded from the wire
-side with `-ignore` where there is no tag to write, converted through a registered function, and converted through one
+side with `-exclude` where there is no tag to write, converted through a registered function, and converted through one
 that can fail. CI regenerates it and fails if the output would change.
 
 ## kanna-orm
@@ -450,13 +450,6 @@ type Post struct {
 
 The destination must be a package of its own — generating into the model package would leave it uncompilable whenever the output goes stale.
 
-| Flag | Description |
-|------|-------------|
-| `-source <pkg>` | source package to scan |
-| `-destination <dir>` | output directory for `orm_gen.go` |
-| `-package <name>` | generated package name (defaults to what the destination declares) |
-| `-check` | verify the output is up to date instead of writing it |
-
 ### Use
 
 ```go
@@ -469,8 +462,6 @@ err = db.Transaction(ctx, func(tx orm.Querier) error {
 	return query.Users(tx).Create(ctx, &model.User{Name: "Alice"})
 })
 ```
-
-See [examples/orm](./examples/orm) for the full tour: scopes, joins, the three preload kinds, transactions, batch inserts, and upserts against real MySQL and PostgreSQL.
 
 ### Tags
 
@@ -489,6 +480,19 @@ The first element of an `orm` tag is either a relation kind or a column name; ev
 | `orm:"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_id"` | via a join table |
 
 Table names are pluralized snake_case (`UserProfile` → `user_profiles`); `//kanna:table name=people` overrides one. Name inference is mechanical — there is deliberately no acronym dictionary, so a mixed-case name like `OAuthToken` takes its column from the tag. Anything malformed — an unknown option, a relation whose target generates no queries, a missing foreign key column — is a positioned error, not a silent skip.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-source <pkg>` | source package to scan |
+| `-destination <dir>` | output directory for `orm_gen.go` |
+| `-package <name>` | generated package name (defaults to what the destination declares) |
+| `-check` | verify the output is up to date instead of writing it |
+
+### Example
+
+[`examples/orm`](examples/orm) drives the generated queries end to end against real MySQL and PostgreSQL: scopes, joins, the three preload kinds, transactions, batch inserts, and upserts. CI regenerates it, runs it against both databases, and fails if the output would change.
 
 ## kanna-i18n
 

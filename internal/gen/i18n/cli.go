@@ -156,7 +156,7 @@ func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 	fs.StringVar(&cfg.Locales, "locales", "locales", "directory containing locale files")
 	fs.StringVar(&cfg.Default, "default", "en", "default language defining the generated signatures")
 	fs.StringVar(&cfg.Destination, "destination", "messages", "output directory for the generated file")
-	fs.StringVar(&cfg.Package, "package", "", "package name of the generated file")
+	fs.StringVar(&cfg.Package, "package", "", "generated package name (defaults to what the destination declares)")
 	fs.BoolVar(&cfg.Check, "check", false, "verify the output is up to date instead of writing it")
 	fs.BoolVar(&showVersion, "version", false, "print version")
 
