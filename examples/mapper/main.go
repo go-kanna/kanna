@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-kanna/kanna/examples/mapper/mapper"
 	"github.com/google/uuid"
 
 	"github.com/go-kanna/kanna/examples/mapper/gen/employeev1"
+	"github.com/go-kanna/kanna/examples/mapper/mapper"
 	"github.com/go-kanna/kanna/examples/mapper/model"
 )
 

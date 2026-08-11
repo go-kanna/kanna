@@ -16,13 +16,18 @@ test:
 test-integration:
 	cd orm/integration && go test ./... -race
 
+# Lint every module in the workspace. go.work is the source of truth, so a new
+# module (an example, a nested test module) is covered the moment it joins.
 .PHONY: lint
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
 		echo "golangci-lint is not installed"; \
 		exit 1; \
 	}
-	golangci-lint run
+	@for dir in $$(go list -m -f '{{.Dir}}'); do \
+		echo ">>> lint $$dir"; \
+		(cd $$dir && golangci-lint run) || exit 1; \
+	done
 
 .PHONY: lint-fix
 lint-fix:
@@ -30,7 +35,10 @@ lint-fix:
 		echo "golangci-lint is not installed"; \
 		exit 1; \
 	}
-	golangci-lint run --fix
+	@for dir in $$(go list -m -f '{{.Dir}}'); do \
+		echo ">>> lint-fix $$dir"; \
+		(cd $$dir && golangci-lint run --fix) || exit 1; \
+	done
 
 .PHONY: build
 build:
