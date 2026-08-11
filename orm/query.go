@@ -477,17 +477,26 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 			return err //nolint:wrapcheck // pass through
 		}
 		defer func() { _ = rows.Close() }()
-		for i := 0; rows.Next(); i++ {
-			if i >= len(items) {
+		n := 0
+		for ; rows.Next(); n++ {
+			if n >= len(items) {
 				return errors.New("orm: INSERT RETURNING returned more rows than items")
 			}
 			var id int64
 			if err := rows.Scan(&id); err != nil {
 				return err //nolint:wrapcheck // pass through
 			}
-			q.setPK(items[i], id)
+			q.setPK(items[n], id)
 		}
-		return rows.Err() //nolint:wrapcheck // pass through
+		if err := rows.Err(); err != nil {
+			return err //nolint:wrapcheck // pass through
+		}
+		// Fewer rows would leave the remaining items' keys unset while
+		// reporting success.
+		if n != len(items) {
+			return fmt.Errorf("orm: INSERT RETURNING returned %d rows for %d items", n, len(items))
+		}
+		return nil
 	}
 
 	result, err := q.db.ExecContext(ctx, query, allValues...)

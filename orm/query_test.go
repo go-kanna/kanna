@@ -1459,3 +1459,17 @@ func TestRewriteStandardStringTreatsBackslashLiterally(t *testing.T) {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }
+
+func TestCreateAllReturningTooFewRowsErrors(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	tq.Results = []orm.TestRows{{Cols: []string{"id"}, Rows: [][]driver.Value{{int64(1)}}}}
+	q := newTestQuery(tq)
+
+	items := []*testUser{{Name: "a"}, {Name: "b"}}
+	err := q.CreateAll(t.Context(), items)
+	if err == nil || !strings.Contains(err.Error(), "rows for") {
+		t.Fatalf("err = %v, want row count mismatch error", err)
+	}
+}
