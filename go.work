@@ -6,5 +6,6 @@ use (
 	./examples/fixture
 	./examples/i18n
 	./examples/mapper
+	./examples/orm
 	./orm/integration
 )
