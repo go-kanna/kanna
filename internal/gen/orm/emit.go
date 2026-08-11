@@ -100,11 +100,7 @@ func newFileEmit(p EmitParams) (*fileEmit, error) {
 			f.hasRelations = true
 		}
 		for _, r := range t.Relations {
-			re, err := f.resolve(t, r)
-			if err != nil {
-				return nil, err
-			}
-			f.rels[t.Name] = append(f.rels[t.Name], re)
+			f.rels[t.Name] = append(f.rels[t.Name], f.resolve(t, r))
 		}
 	}
 
@@ -175,7 +171,7 @@ func isStdlib(path string) bool {
 
 // resolve qualifies a relation's type and factory for the destination file,
 // collecting whatever imports that takes.
-func (f *fileEmit) resolve(t Table, r Relation) (relEmit, error) {
+func (f *fileEmit) resolve(t Table, r Relation) relEmit {
 	re := relEmit{
 		Relation:      r,
 		TargetTypeQ:   f.p.SourceName + "." + r.TargetType,
@@ -191,7 +187,7 @@ func (f *fileEmit) resolve(t Table, r Relation) (relEmit, error) {
 		}
 	}
 
-	return re, nil
+	return re
 }
 
 func (f *fileEmit) addImport(path, alias string) {
