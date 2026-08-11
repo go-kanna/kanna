@@ -3,7 +3,6 @@ package orm
 import (
 	"go/token"
 	"go/types"
-	"reflect"
 	"strings"
 
 	"github.com/go-kanna/kanna/internal/diag"
@@ -54,15 +53,14 @@ type Field struct {
 // Relation is one relation-tagged struct field, with everything the emitter
 // needs already resolved: names are looked up, never reconstructed.
 type Relation struct {
-	FieldName     string
-	Kind          string // has_many | has_one | belongs_to | many_to_many
-	TargetType    string // bare target struct name, e.g. "Post"
-	TargetPkgPath string // import path of the target's package; empty for the source package
-	ForeignKey    string
-	JoinTable     string // many_to_many only
-	References    string // many_to_many only
-	IsPointer     bool
-	Pos           token.Position
+	FieldName  string
+	Kind       string // has_many | has_one | belongs_to | many_to_many
+	TargetType string // bare target struct name, always in the source package
+	ForeignKey string
+	JoinTable  string // many_to_many only
+	References string // many_to_many only
+	IsPointer  bool
+	Pos        token.Position
 
 	// Resolved by Tables once every table is known.
 	ForeignKeyField string    // Go field owning the foreign key column
@@ -73,9 +71,7 @@ type Relation struct {
 	TargetTableName string    // target's table name
 	TargetPKColumn  string    // target's primary key column
 	TargetPKField   string    // target's primary key Go field
-	JoinScan        *JoinScan // belongs_to/has_one in the source package; nil otherwise
-
-	named *types.Named // target type, for cross-package field lookups
+	JoinScan        *JoinScan // belongs_to/has_one only; nil otherwise
 }
 
 // JoinScan carries what the emitter needs to scan a joined row directly into
@@ -317,22 +313,26 @@ func buildRelation(s ir.Struct, f ir.Field, rel *relationTag, srcPkg *types.Pack
 			"%s.%s: a %s field must be %s", s.Name, f.Name, rel.Kind, shape)}
 	}
 
-	targetPkg := ""
 	if p := named.Obj().Pkg(); p != nil && p != srcPkg {
-		targetPkg = p.Path()
+		// The target's table name, primary key, and factory location are the
+		// business of its own generation run; a single-package run cannot see
+		// its directive or where its queries land, so guessing would emit
+		// imports and names that may not exist.
+		return nil, []diag.Diag{diag.Errorf(f.Pos,
+			"%s.%s: relation target %s lives in %s; relations resolve within one package",
+			s.Name, f.Name, named.Obj().Name(), p.Path()).
+			WithHints("declare the relation in the target's package, or mirror the type locally")}
 	}
 
 	return &Relation{
-		FieldName:     f.Name,
-		Kind:          rel.Kind,
-		TargetType:    named.Obj().Name(),
-		TargetPkgPath: targetPkg,
-		ForeignKey:    rel.ForeignKey,
-		JoinTable:     rel.JoinTable,
-		References:    rel.References,
-		IsPointer:     isPointer,
-		Pos:           f.Pos,
-		named:         named,
+		FieldName:  f.Name,
+		Kind:       rel.Kind,
+		TargetType: named.Obj().Name(),
+		ForeignKey: rel.ForeignKey,
+		JoinTable:  rel.JoinTable,
+		References: rel.References,
+		IsPointer:  isPointer,
+		Pos:        f.Pos,
 	}, nil
 }
 
@@ -440,12 +440,7 @@ func resolveRelations(tables []Table, marked, inPackage map[string]bool) []diag.
 	for ti := range tables {
 		t := &tables[ti]
 		for ri := range t.Relations {
-			r := &t.Relations[ri]
-			if r.TargetPkgPath == "" {
-				diags = append(diags, resolveLocal(t, r, byName, marked, inPackage)...)
-			} else {
-				diags = append(diags, resolveCrossPackage(t, r)...)
-			}
+			diags = append(diags, resolveLocal(t, &t.Relations[ri], byName, marked, inPackage)...)
 		}
 	}
 	return diags
@@ -513,131 +508,6 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 		r.JoinScan = &JoinScan{Fields: target.Fields, PK: target.PK()}
 	}
 	return nil
-}
-
-// resolveCrossPackage fills what can be known about a target in another
-// package: the table name is inferred (a name= override over there is not
-// visible from here), and the primary key and foreign key fields are real —
-// read from the target's type information, never guessed from column names.
-func resolveCrossPackage(t *Table, r *Relation) []diag.Diag {
-	r.TargetTableName = tableName(r.TargetType)
-
-	pkVar, pkCol, ok := crossPK(r.named)
-	if !ok {
-		return []diag.Diag{diag.Errorf(r.Pos,
-			"%s.%s: cannot determine the primary key of %s.%s; name it ID or tag it with orm:\",primary_key\"",
-			t.Name, r.FieldName, r.TargetPkgPath, r.TargetType)}
-	}
-	r.TargetPKColumn = pkCol
-	r.TargetPKField = pkVar.Name()
-	var pkDeps []PkgRef
-	r.TargetKeyType, pkDeps = renderType(pkVar.Type())
-	r.TypeDeps = append(r.TypeDeps, pkDeps...)
-
-	switch r.Kind {
-	case "belongs_to":
-		fk := columnField(*t, r.ForeignKey)
-		if fk == nil {
-			return []diag.Diag{diag.Errorf(r.Pos,
-				"%s.%s: foreign_key %q is not a column of %s", t.Name, r.FieldName, r.ForeignKey, t.Name)}
-		}
-		r.ForeignKeyField = fk.Name
-		r.KeyType, r.FKIsPointer = derefType(fk.GoType)
-		if r.KeyType != r.TargetKeyType {
-			return []diag.Diag{diag.Errorf(r.Pos,
-				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
-				t.Name, r.FieldName, t.Name, fk.Name, fk.GoType, r.TargetType, r.TargetKeyType)}
-		}
-		r.TypeDeps = append(r.TypeDeps, fk.TypePkgs...)
-	case "has_many", "has_one":
-		fkVar, ok := fieldForColumn(r.named, r.ForeignKey)
-		if !ok {
-			return []diag.Diag{diag.Errorf(r.Pos,
-				"%s.%s: foreign_key %q is not a column of %s.%s",
-				t.Name, r.FieldName, r.ForeignKey, r.TargetPkgPath, r.TargetType)}
-		}
-		r.ForeignKeyField = fkVar.Name()
-		fkType, _ := renderType(fkVar.Type())
-		keyType, fkPtr := derefType(fkType)
-		if keyType != t.PK().GoType {
-			return []diag.Diag{diag.Errorf(r.Pos,
-				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
-				t.Name, r.FieldName, r.TargetType, fkVar.Name(), fkType, t.Name, t.PK().GoType)}
-		}
-		r.FKIsPointer = fkPtr
-		r.KeyType = keyType
-		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
-	default: // many_to_many
-		r.KeyType = t.PK().GoType
-		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
-	}
-	return nil
-}
-
-// crossColumns walks the exported plain fields of a struct in another
-// package, handing each to fn with the column name its own generation run
-// would use, until fn returns true.
-func crossColumns(named *types.Named, fn func(f *types.Var, column string, explicit *columnTag) bool) {
-	st, ok := named.Underlying().(*types.Struct)
-	if !ok {
-		return
-	}
-	for i := range st.NumFields() {
-		f := st.Field(i)
-		if !f.Exported() || f.Embedded() {
-			continue
-		}
-		col, rel, errs := parseTag(reflect.StructTag(st.Tag(i)).Get(tagKey))
-		if len(errs) > 0 || rel != nil || col.Skip {
-			continue
-		}
-		name := col.Column
-		if name == "" {
-			name = camelToSnake(f.Name())
-		}
-		if fn(f, name, col) {
-			return
-		}
-	}
-}
-
-// crossPK resolves the primary key of a target struct in another package by
-// the same rules its own generation run uses: an explicit primary_key option
-// wins, a field named ID is the fallback.
-func crossPK(named *types.Named) (*types.Var, string, bool) {
-	var (
-		pkVar *types.Var
-		pkCol string
-		idVar *types.Var
-		idCol string
-	)
-	crossColumns(named, func(f *types.Var, column string, col *columnTag) bool {
-		if col.PrimaryKey {
-			pkVar, pkCol = f, column
-			return true
-		}
-		if f.Name() == "ID" {
-			idVar, idCol = f, column
-		}
-		return false
-	})
-	if pkVar != nil {
-		return pkVar, pkCol, true
-	}
-	return idVar, idCol, idVar != nil
-}
-
-// fieldForColumn finds the exported field of named whose column is column.
-func fieldForColumn(named *types.Named, column string) (*types.Var, bool) {
-	var found *types.Var
-	crossColumns(named, func(f *types.Var, c string, _ *columnTag) bool {
-		if c == column {
-			found = f
-			return true
-		}
-		return false
-	})
-	return found, found != nil
 }
 
 // renderType renders t qualified by package name — the generated file lives

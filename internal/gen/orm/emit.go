@@ -175,30 +175,6 @@ func (f *fileEmit) resolve(t Table, r Relation) (relEmit, error) {
 		}
 	}
 
-	if r.TargetPkgPath == "" {
-		return re, nil
-	}
-
-	alias := resolveAlias(r.TargetPkgPath, f.p.SourcePath)
-	re.TargetTypeQ = alias + "." + r.TargetType
-	f.addImport(r.TargetPkgPath, alias)
-
-	// The target's factory lives in its own query package, assumed to sit
-	// next to its model package under the same name as this destination.
-	extQuery := replaceLastSegment(r.TargetPkgPath, f.p.PackageName)
-	destQuery := replaceLastSegment(f.p.SourcePath, f.p.PackageName)
-	if extQuery == destQuery {
-		// The guess collapses onto this very file's package, and one
-		// destination cannot hold two model packages' output: the file name
-		// is fixed, so the second run would replace the first.
-		return relEmit{}, fmt.Errorf(
-			"%s.%s: the query package for %s would be %s itself; generate the packages into destinations of their own",
-			t.Name, r.FieldName, r.TargetPkgPath, extQuery)
-	}
-	queryAlias := resolveAlias(extQuery, destQuery)
-	re.TargetFactory = queryAlias + "." + re.TargetFactory
-	f.addImport(extQuery, queryAlias)
-
 	return re, nil
 }
 
@@ -691,36 +667,4 @@ func unexportedName(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToLower(runes[0])
 	return string(runes)
-}
-
-// resolveAlias determines the import alias for an external package. When the
-// last path segment collides with the source import's, the previous segment
-// is prepended to disambiguate.
-func resolveAlias(importPath, sourceImport string) string {
-	parts := strings.Split(importPath, "/")
-	lastSeg := parts[len(parts)-1]
-
-	if sourceImport == "" {
-		return lastSeg
-	}
-
-	srcParts := strings.Split(sourceImport, "/")
-	if lastSeg != srcParts[len(srcParts)-1] {
-		return lastSeg
-	}
-
-	if len(parts) >= 2 {
-		return parts[len(parts)-2] + lastSeg
-	}
-	return lastSeg
-}
-
-// replaceLastSegment swaps the last path segment of an import path:
-// ("github.com/foo/model", "query") → "github.com/foo/query".
-func replaceLastSegment(importPath, newSeg string) string {
-	i := strings.LastIndex(importPath, "/")
-	if i < 0 {
-		return newSeg
-	}
-	return importPath[:i+1] + newSeg
 }
