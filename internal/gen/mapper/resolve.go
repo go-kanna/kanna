@@ -19,7 +19,7 @@ type pairSpec struct {
 	Dst types.Type
 }
 
-// fieldKey identifies a struct field for -ignore matching.
+// fieldKey identifies a struct field for -exclude matching.
 type fieldKey struct {
 	PkgPath string
 	Type    string
@@ -180,7 +180,7 @@ func (r *resolver) resolveFields(p *funcPlan) {
 		if !f.Exported() {
 			continue
 		}
-		// -ignore comes first: it is the escape hatch for a destination the
+		// -exclude comes first: it is the escape hatch for a destination the
 		// author cannot edit, so it has to apply even to a field whose tag this
 		// generator would reject, and a map:"-" field still marks its entry used.
 		key := fieldKey{PkgPath: dstNamed.Obj().Pkg().Path(), Type: dstNamed.Obj().Name(), Field: f.Name()}
@@ -377,7 +377,7 @@ func (r *resolver) unmappedError(p *funcPlan, f *types.Var) {
 	if f.Anonymous() {
 		msg += "\n\tnote: embedded fields are not flattened on the destination side"
 	}
-	msg += "\n\tadd a map tag naming the source field, exclude the field with map:\"-\", or pass -ignore"
+	msg += "\n\tadd a map tag naming the source field, exclude the field with map:\"-\", or pass -exclude"
 	r.errs = append(r.errs, errors.New(msg))
 }
 

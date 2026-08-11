@@ -82,12 +82,12 @@ func TestParse(t *testing.T) {
 			name: "all flags",
 			args: []string{
 				"-types=a.A:b.B",
-				"-converter-pkg=./lib/converters,./lib/more",
-				"-converter-pkg=github.com/acme/x",
-				"-ignore=model.Employee.CreatedAt,Employee.ID",
+				"-converters=./lib/converters,./lib/more",
+				"-converters=github.com/acme/x",
+				"-exclude=model.Employee.CreatedAt,Employee.ID",
 				"-direction=to",
 				"-package=handler",
-				"-output=./gen",
+				"-destination=./gen",
 				"-check",
 			},
 			want: mapper.Config{
@@ -141,10 +141,10 @@ func TestParseError(t *testing.T) {
 		{"empty package selector", []string{"-types=.Employee:b.B"}, "empty package selector"},
 		{"invalid package selector", []string{"-types=mo-del.A:b.B"}, "not a valid package selector"},
 		{"invalid direction", []string{"-types=a.A:b.B", "-direction=up"}, "invalid -direction"},
-		{"ignore without field", []string{"-types=a.A:b.B", "-ignore=Employee"}, "want TYPE.FIELD"},
-		{"ignore with pointer", []string{"-types=a.A:b.B", "-ignore=*model.Employee.ID"}, "pointer marker is not allowed"},
+		{"ignore without field", []string{"-types=a.A:b.B", "-exclude=Employee"}, "want TYPE.FIELD"},
+		{"ignore with pointer", []string{"-types=a.A:b.B", "-exclude=*model.Employee.ID"}, "pointer marker is not allowed"},
 		{"invalid package flag", []string{"-types=a.A:b.B", "-package=9pkg"}, "invalid -package"},
-		{"empty output", []string{"-types=a.A:b.B", "-output="}, "-output must not be empty"},
+		{"empty destination", []string{"-types=a.A:b.B", "-destination="}, "-destination must not be empty"},
 		{"unknown flag", []string{"-types=a.A:b.B", "-bogus"}, "parse arguments"},
 	}
 	for _, tt := range tests {

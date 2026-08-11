@@ -36,7 +36,7 @@ type TypePair struct {
 	Dst TypeRef
 }
 
-// FieldRef identifies a struct field from -ignore.
+// FieldRef identifies a struct field from -exclude.
 type FieldRef struct {
 	Type  TypeRef
 	Field string

@@ -79,7 +79,7 @@ func TestRunGenerate(t *testing.T) {
 
 	// Only the widening direction: int64 back into int32 would lose data, and
 	// the generator is right to refuse it without a converter.
-	code, stdout, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-output=./out", "-package=out")
+	code, stdout, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out")
 	if code != exit.OK {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s\nstdout: %s", code, exit.OK, stderr, stdout)
 	}
@@ -111,7 +111,7 @@ func TestRunPromotedFieldKeepsItsTag(t *testing.T) {
 		"package wire\n\ntype User struct {\n\tSecret string\n\tName   string\n}\n",
 	))
 
-	code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-output=./out", "-package=out")
+	code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out")
 	if code != exit.Error {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.Error, stderr)
 	}
@@ -139,7 +139,7 @@ func TestRunPreservesPointerNilness(t *testing.T) {
 
 	code, _, stderr := runCLI(t, dir,
 		"-types=example.com/app/wire.User:example.com/app/model.User",
-		"-direction=to", "-output=./out", "-package=out")
+		"-direction=to", "-destination=./out", "-package=out")
 	if code != exit.OK {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 	}
@@ -166,7 +166,7 @@ func TestRunPackageConflict(t *testing.T) {
 	files["out/existing.go"] = "package out\n"
 	writeModule(t, dir, files)
 
-	code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=different")
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=different")
 	if code != exit.Error {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.Error, stderr)
 	}
@@ -189,7 +189,7 @@ func TestRunSkipsOtherPlatformFiles(t *testing.T) {
 	files["only_plan9.go"] = "//go:build plan9\n\npackage app\n\nimport _ \"example.com/app/nonexistent\"\n"
 	writeModule(t, dir, files)
 
-	code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=out")
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out")
 	if code != exit.OK {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 	}
@@ -206,7 +206,7 @@ func TestRunCheck(t *testing.T) {
 		"package wire\n\ntype User struct{ Name string }\n",
 	))
 
-	code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=out", "-check")
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out", "-check")
 	if code != exit.Error {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.Error, stderr)
 	}
@@ -218,10 +218,10 @@ func TestRunCheck(t *testing.T) {
 	}
 
 	// Generate, then confirm -check is satisfied by the result.
-	if code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=out"); code != exit.OK {
+	if code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out"); code != exit.OK {
 		t.Fatalf("generate failed: %d\nstderr: %s", code, stderr)
 	}
-	if code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=out", "-check"); code != exit.OK {
+	if code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out", "-check"); code != exit.OK {
 		t.Fatalf("-check on fresh output = %d, want %d\nstderr: %s", code, exit.OK, stderr)
 	}
 }
@@ -238,7 +238,7 @@ func TestRunRefusesToOverwriteHandWritten(t *testing.T) {
 	files["out/mapper_gen.go"] = "package out\n\n// Written by hand.\n"
 	writeModule(t, dir, files)
 
-	code, _, stderr := runCLI(t, dir, pairFlag, "-output=./out", "-package=out")
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out")
 	if code != exit.Error {
 		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.Error, stderr)
 	}
