@@ -1473,3 +1473,34 @@ func TestCreateAllReturningTooFewRowsErrors(t *testing.T) {
 		t.Fatalf("err = %v, want row count mismatch error", err)
 	}
 }
+
+func TestRewriteKeepsPlaceholdersInsideComments(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	_, _ = q.Where("id = ? /* skip ? here */ AND name = ?", 1, "a").All(t.Context())
+
+	got := tq.LastQuery()
+	want := `SELECT "id", "name" FROM "users" WHERE id = $1 /* skip ? here */ AND name = $2`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestRewriteKeepsPlaceholdersInsideNestedAndLineComments(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	_, _ = q.Where("id = ? /* outer /* inner ? */ still ? */ -- tail ?\n AND name = ?", 1, "a").All(t.Context())
+
+	got := tq.LastQuery()
+	want := "SELECT \"id\", \"name\" FROM \"users\"" +
+		" WHERE id = $1 /* outer /* inner ? */ still ? */ -- tail ?\n AND name = $2"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}

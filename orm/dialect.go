@@ -65,7 +65,8 @@ func (d postgresDialect) ReturningClause(pk string) string {
 // single-quoted strings, quoted identifiers, dollar-quoted strings, and
 // E'…' escape strings are left alone: a doubled closing quote stays inside
 // its region, a backslash inside an escape string escapes the next byte, and
-// an unterminated quote runs to the end. PostgreSQL's JSONB ?/?|/?&
+// an unterminated quote runs to the end. Comments — both `--` to end of line
+// and nesting `/* … */` blocks — are skipped the same way. PostgreSQL's JSONB ?/?|/?&
 // operators are indistinguishable from placeholders at this level — use the
 // jsonb_exists* functions in clauses instead.
 func rewritePlaceholders(d Dialect, query string) string {
@@ -114,6 +115,19 @@ func rewritePlaceholders(d Dialect, query string) string {
 			} else {
 				b.WriteByte(c)
 			}
+		case c == '-' && i+1 < len(query) && query[i+1] == '-':
+			nl := strings.IndexByte(query[i:], '\n')
+			if nl < 0 {
+				b.WriteString(query[i:])
+				i = len(query)
+			} else {
+				b.WriteString(query[i : i+nl+1])
+				i += nl
+			}
+		case c == '/' && i+1 < len(query) && query[i+1] == '*':
+			end := blockCommentEnd(query, i)
+			b.WriteString(query[i:end])
+			i = end - 1
 		case c == '?':
 			b.WriteString(d.Placeholder(idx))
 			idx++
@@ -153,4 +167,28 @@ func isIdentStart(c byte) bool {
 
 func isIdentPart(c byte) bool {
 	return isIdentStart(c) || ('0' <= c && c <= '9')
+}
+
+// blockCommentEnd reports the index just past the block comment opening at
+// start. PostgreSQL block comments nest; an unterminated comment runs to the
+// end of the query.
+func blockCommentEnd(query string, start int) int {
+	depth := 0
+	i := start
+	for i < len(query) {
+		switch {
+		case i+1 < len(query) && query[i] == '/' && query[i+1] == '*':
+			depth++
+			i += 2
+		case i+1 < len(query) && query[i] == '*' && query[i+1] == '/':
+			depth--
+			i += 2
+			if depth == 0 {
+				return i
+			}
+		default:
+			i++
+		}
+	}
+	return len(query)
 }
