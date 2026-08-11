@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/exit"
+	"github.com/go-kanna/kanna/internal/output"
 	"github.com/go-kanna/kanna/internal/packages"
 	"github.com/go-kanna/kanna/internal/scan"
 )
@@ -64,12 +65,14 @@ func (c CLI) Run(args []string) int {
 		verbose     bool
 		tagsRaw     string
 		mustFlag    bool
+		checkFlag   bool
 		showVersion bool
 	)
 	fs.BoolVar(&verbose, "v", false, "verbose output")
 	fs.BoolVar(&verbose, "verbose", false, "verbose output")
 	fs.StringVar(&tagsRaw, "tags", "", "comma-separated build tags")
 	fs.BoolVar(&mustFlag, "must", false, "generate MustNew* constructors that panic on error")
+	fs.BoolVar(&checkFlag, "check", false, "verify generated files are up to date instead of writing them")
 	fs.BoolVar(&showVersion, "version", false, "print version")
 
 	if err := fs.Parse(args); err != nil {
@@ -185,11 +188,21 @@ func (c CLI) Run(args []string) int {
 		return exit.Error
 	}
 
+	if checkFlag {
+		// Every stale package is reported, not just the first: a CI failure
+		// should name everything a single regeneration would fix.
+		code := exit.OK
+		for _, f := range pending {
+			if err := output.CheckUpToDate(f.path, f.data); err != nil {
+				fmt.Fprintln(c.Err, err)
+				code = exit.Error
+			}
+		}
+		return code
+	}
+
 	for _, f := range pending {
-		// Generated Go source should be readable like the rest of the package,
-		// matching what gofmt/go generate produce by default.
-		//nolint:gosec // generated source is meant to be world-readable
-		if err := os.WriteFile(f.path, f.data, 0o644); err != nil {
+		if err := output.Write(f.path, f.data); err != nil {
 			fmt.Fprintln(c.Err, err)
 			return exit.Error
 		}
@@ -257,6 +270,7 @@ func (c CLI) printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --tags <list>      comma-separated build tags")
 	fmt.Fprintln(w, "  --must             generate MustNew* constructors that panic on error")
+	fmt.Fprintln(w, "  -check             verify generated files are up to date instead of writing them")
 	fmt.Fprintln(w, "  -v, --verbose      verbose output")
 	fmt.Fprintln(w, "  --version          print version")
 	fmt.Fprintln(w, "  -h, --help         show this help")

@@ -364,3 +364,71 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+const checkModuleSrc = `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type Container struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`
+
+func TestCLI_Check(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": checkModuleSrc,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("generate: exit code = %d\nstderr: %s", code, errOut.String())
+	}
+
+	// Freshly generated output passes.
+	if code := c.Run([]string{"-check", "./..."}); code != exit.OK {
+		t.Fatalf("check after generate: exit code = %d\nstderr: %s", code, errOut.String())
+	}
+
+	// A new provider wired into the container changes the generated
+	// constructor, making the output stale.
+	extra := "type Logger struct{}\n\nfunc NewLogger() *Logger { return nil }\n\n" +
+		"type Container struct {\n\tLogger *Logger `di:\"\"`"
+	src := strings.Replace(checkModuleSrc, "type Container struct {", extra, 1)
+	if err := os.WriteFile(filepath.Join(dir, "app.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	errOut.Reset()
+	if code := c.Run([]string{"-check", "./..."}); code != exit.Error {
+		t.Fatalf("check on stale output: exit code = %d, want %d", code, exit.Error)
+	}
+	if !strings.Contains(errOut.String(), "out of date") {
+		t.Errorf("stderr = %q, want an out-of-date report", errOut.String())
+	}
+}
+
+func TestCLI_RefusesHandWrittenOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod":    "module example.com/app\n\ngo 1.25\n",
+		"app.go":    checkModuleSrc,
+		"di_gen.go": "package app\n\n// Written by hand.\n",
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.Error {
+		t.Fatalf("exit code = %d, want %d", code, exit.Error)
+	}
+	if !strings.Contains(errOut.String(), "refusing to overwrite") {
+		t.Errorf("stderr = %q, want a refusal", errOut.String())
+	}
+}
