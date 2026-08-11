@@ -210,3 +210,61 @@ type Post struct {
 		t.Errorf("generated file indexes the map with a pointer key:\n%s", got)
 	}
 }
+
+func TestEmitManyToManyWithDifferingKeyTypes(t *testing.T) {
+	t.Parallel()
+
+	got := emitFor(t, `package model
+
+//kanna:table
+type User struct {
+	ID   int
+	Tags []Tag `+"`"+`orm:"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_code"`+"`"+`
+}
+
+//kanna:table
+type Tag struct {
+	Code string `+"`"+`orm:",primary_key"`+"`"+`
+	Name string
+}
+`)
+	for _, want := range []string{
+		"orm.QueryJoinTable[int, string]",
+		"byPK := make(map[string]model.Tag)",
+		"byPK[r.Code] = r",
+		`scope.In("code", targetIDs)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestEmitImportsThirdPackageKeyTypes(t *testing.T) {
+	t.Parallel()
+
+	got := emitFor(t, `package model
+
+import "net/netip"
+
+//kanna:table
+type Host struct {
+	ID    netip.Addr
+	Peers []Peer `+"`"+`orm:"has_many,foreign_key:host_id"`+"`"+`
+}
+
+//kanna:table
+type Peer struct {
+	ID     int
+	HostID netip.Addr
+}
+`)
+	for _, want := range []string{
+		"\"net/netip\"",
+		"make(map[netip.Addr][]model.Peer)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file lacks %q:\n%s", want, got)
+		}
+	}
+}

@@ -31,12 +31,20 @@ func (t Table) PK() Field {
 	return Field{}
 }
 
+// PkgRef names a package a rendered type string refers to, so the emitter
+// can import what the string mentions.
+type PkgRef struct {
+	Name string
+	Path string
+}
+
 // Field is one column-backed struct field.
 type Field struct {
 	Name       string // Go field name
 	Column     string
-	GoType     string // rendered relative to the source package, e.g. "time.Time"
-	IntKind    bool   // underlying type is an integer, however it is named
+	GoType     string   // rendered relative to the source package, e.g. "time.Time"
+	IntKind    bool     // underlying type is an integer, however it is named
+	TypePkgs   []PkgRef // packages GoType mentions
 	PrimaryKey bool
 	CreatedAt  bool
 	UpdatedAt  bool
@@ -59,7 +67,9 @@ type Relation struct {
 	// Resolved by Tables once every table is known.
 	ForeignKeyField string    // Go field owning the foreign key column
 	FKIsPointer     bool      // the foreign key field is a pointer
-	KeyType         string    // preloader map key type
+	KeyType         string    // preloader map key type on the parent side
+	TargetKeyType   string    // the target's primary key type
+	TypeDeps        []PkgRef  // packages the key type strings mention
 	TargetTableName string    // target's table name
 	TargetPKColumn  string    // target's primary key column
 	TargetPKField   string    // target's primary key Go field
@@ -149,9 +159,6 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 	table := Table{Name: s.Name, TableName: name, Pos: s.Pos}
 
 	srcPkg := s.Named.Obj().Pkg()
-	// The generated file lives in another package, so every named type is
-	// qualified by its package name; basic types come out bare either way.
-	qualify := func(p *types.Package) string { return p.Name() }
 
 	for _, f := range s.Fields {
 		if f.Embedded {
@@ -181,7 +188,7 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 			continue
 		}
 
-		field, ok := buildField(f, col, hasTag, qualify)
+		field, ok := buildField(f, col, hasTag)
 		if ok {
 			table.Fields = append(table.Fields, field)
 		}
@@ -218,7 +225,7 @@ func parseTableArgs(args string, pos token.Position) (string, []diag.Diag) {
 // an explicit statement of what the field is, so a field that wants both a
 // custom column name and timestamp behavior says so with created_at or
 // updated_at.
-func buildField(f ir.Field, col *columnTag, hasTag bool, qualify types.Qualifier) (Field, bool) {
+func buildField(f ir.Field, col *columnTag, hasTag bool) (Field, bool) {
 	if col.Skip {
 		return Field{}, false
 	}
@@ -232,12 +239,14 @@ func buildField(f ir.Field, col *columnTag, hasTag bool, qualify types.Qualifier
 	}
 
 	basic, isBasic := f.Type.Underlying().(*types.Basic)
+	goType, typePkgs := renderType(f.Type)
 
 	return Field{
 		Name:       f.Name,
 		Column:     column,
-		GoType:     types.TypeString(f.Type, qualify),
+		GoType:     goType,
 		IntKind:    isBasic && basic.Info()&types.IsInteger != 0,
+		TypePkgs:   typePkgs,
 		PrimaryKey: col.PrimaryKey,
 		CreatedAt:  col.CreatedAt || (!hasTag && f.Name == "CreatedAt"),
 		UpdatedAt:  col.UpdatedAt || (!hasTag && f.Name == "UpdatedAt"),
@@ -464,6 +473,8 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 	r.TargetTableName = target.TableName
 	r.TargetPKColumn = target.PK().Column
 	r.TargetPKField = target.PK().Name
+	r.TargetKeyType = target.PK().GoType
+	r.TypeDeps = append(r.TypeDeps, target.PK().TypePkgs...)
 
 	switch r.Kind {
 	case "belongs_to":
@@ -474,6 +485,12 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 		}
 		r.ForeignKeyField = fk.Name
 		r.KeyType, r.FKIsPointer = derefType(fk.GoType)
+		if r.KeyType != r.TargetKeyType {
+			return []diag.Diag{diag.Errorf(r.Pos,
+				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
+				t.Name, r.FieldName, t.Name, fk.Name, fk.GoType, r.TargetType, r.TargetKeyType)}
+		}
+		r.TypeDeps = append(r.TypeDeps, fk.TypePkgs...)
 	case "has_many", "has_one":
 		fk := columnField(*target, r.ForeignKey)
 		if fk == nil {
@@ -489,8 +506,10 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 		}
 		r.FKIsPointer = fkPtr
 		r.KeyType = keyType
+		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
 	default: // many_to_many
 		r.KeyType = t.PK().GoType
+		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
 	}
 
 	if r.Kind == "belongs_to" || r.Kind == "has_one" {
@@ -504,14 +523,23 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 }
 
 // resolveCrossPackage fills what can be known about a target in another
-// package. Its table name is inferred (a name= override over there is not
-// visible from here) and its primary key column is taken to be "id" by the
-// same convention ormgen used; the foreign key field is real, read from the
-// target's type information rather than guessed from the column name.
+// package: the table name is inferred (a name= override over there is not
+// visible from here), and the primary key and foreign key fields are real —
+// read from the target's type information, never guessed from column names.
 func resolveCrossPackage(t *Table, r *Relation) []diag.Diag {
 	r.TargetTableName = tableName(r.TargetType)
-	r.TargetPKColumn = "id"
-	r.TargetPKField = "ID"
+
+	pkVar, pkCol, ok := crossPK(r.named)
+	if !ok {
+		return []diag.Diag{diag.Errorf(r.Pos,
+			"%s.%s: cannot determine the primary key of %s.%s; name it ID or tag it with orm:\",primary_key\"",
+			t.Name, r.FieldName, r.TargetPkgPath, r.TargetType)}
+	}
+	r.TargetPKColumn = pkCol
+	r.TargetPKField = pkVar.Name()
+	var pkDeps []PkgRef
+	r.TargetKeyType, pkDeps = renderType(pkVar.Type())
+	r.TypeDeps = append(r.TypeDeps, pkDeps...)
 
 	switch r.Kind {
 	case "belongs_to":
@@ -522,27 +550,44 @@ func resolveCrossPackage(t *Table, r *Relation) []diag.Diag {
 		}
 		r.ForeignKeyField = fk.Name
 		r.KeyType, r.FKIsPointer = derefType(fk.GoType)
+		if r.KeyType != r.TargetKeyType {
+			return []diag.Diag{diag.Errorf(r.Pos,
+				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
+				t.Name, r.FieldName, t.Name, fk.Name, fk.GoType, r.TargetType, r.TargetKeyType)}
+		}
+		r.TypeDeps = append(r.TypeDeps, fk.TypePkgs...)
 	case "has_many", "has_one":
-		name, ok := fieldForColumn(r.named, r.ForeignKey)
+		fkVar, ok := fieldForColumn(r.named, r.ForeignKey)
 		if !ok {
 			return []diag.Diag{diag.Errorf(r.Pos,
 				"%s.%s: foreign_key %q is not a column of %s.%s",
 				t.Name, r.FieldName, r.ForeignKey, r.TargetPkgPath, r.TargetType)}
 		}
-		r.ForeignKeyField = name
-		r.KeyType = t.PK().GoType
+		r.ForeignKeyField = fkVar.Name()
+		fkType, _ := renderType(fkVar.Type())
+		keyType, fkPtr := derefType(fkType)
+		if keyType != t.PK().GoType {
+			return []diag.Diag{diag.Errorf(r.Pos,
+				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
+				t.Name, r.FieldName, r.TargetType, fkVar.Name(), fkType, t.Name, t.PK().GoType)}
+		}
+		r.FKIsPointer = fkPtr
+		r.KeyType = keyType
+		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
 	default: // many_to_many
 		r.KeyType = t.PK().GoType
+		r.TypeDeps = append(r.TypeDeps, t.PK().TypePkgs...)
 	}
 	return nil
 }
 
-// fieldForColumn finds the exported field of named whose column is column,
-// reading orm tags the way the target's own generation run would.
-func fieldForColumn(named *types.Named, column string) (string, bool) {
+// crossColumns walks the exported plain fields of a struct in another
+// package, handing each to fn with the column name its own generation run
+// would use, until fn returns true.
+func crossColumns(named *types.Named, fn func(f *types.Var, column string, explicit *columnTag) bool) {
 	st, ok := named.Underlying().(*types.Struct)
 	if !ok {
-		return "", false
+		return
 	}
 	for i := range st.NumFields() {
 		f := st.Field(i)
@@ -557,11 +602,65 @@ func fieldForColumn(named *types.Named, column string) (string, bool) {
 		if name == "" {
 			name = camelToSnake(f.Name())
 		}
-		if name == column {
-			return f.Name(), true
+		if fn(f, name, col) {
+			return
 		}
 	}
-	return "", false
+}
+
+// crossPK resolves the primary key of a target struct in another package by
+// the same rules its own generation run uses: an explicit primary_key option
+// wins, a field named ID is the fallback.
+func crossPK(named *types.Named) (*types.Var, string, bool) {
+	var (
+		pkVar *types.Var
+		pkCol string
+		idVar *types.Var
+		idCol string
+	)
+	crossColumns(named, func(f *types.Var, column string, col *columnTag) bool {
+		if col.PrimaryKey {
+			pkVar, pkCol = f, column
+			return true
+		}
+		if f.Name() == "ID" {
+			idVar, idCol = f, column
+		}
+		return false
+	})
+	if pkVar != nil {
+		return pkVar, pkCol, true
+	}
+	return idVar, idCol, idVar != nil
+}
+
+// fieldForColumn finds the exported field of named whose column is column.
+func fieldForColumn(named *types.Named, column string) (*types.Var, bool) {
+	var found *types.Var
+	crossColumns(named, func(f *types.Var, c string, _ *columnTag) bool {
+		if c == column {
+			found = f
+			return true
+		}
+		return false
+	})
+	return found, found != nil
+}
+
+// renderType renders t qualified by package name — the generated file lives
+// in another package, so every named type carries its package — collecting
+// the packages the string mentions.
+func renderType(t types.Type) (string, []PkgRef) {
+	var deps []PkgRef
+	seen := map[string]bool{}
+	s := types.TypeString(t, func(p *types.Package) string {
+		if !seen[p.Path()] {
+			seen[p.Path()] = true
+			deps = append(deps, PkgRef{Name: p.Name(), Path: p.Path()})
+		}
+		return p.Name()
+	})
+	return s, deps
 }
 
 // derefType splits a possibly-pointer type string into its element and

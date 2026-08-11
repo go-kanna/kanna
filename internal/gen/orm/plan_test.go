@@ -536,3 +536,22 @@ type Entry struct {
 		t.Errorf("fields = %+v, want only id", tables[0].Fields)
 	}
 }
+
+func TestTablesRejectsBelongsToKeyTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	wantError(t, `package model
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+	User   *User `+"`"+`orm:"belongs_to,foreign_key:user_id"`+"`"+`
+}
+
+//kanna:table
+type User struct {
+	Code string `+"`"+`orm:",primary_key"`+"`"+`
+}
+`, "primary key")
+}

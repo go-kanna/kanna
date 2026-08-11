@@ -229,3 +229,79 @@ func TestRunReportsPlanErrors(t *testing.T) {
 		t.Errorf("Run() = %d, stderr = %q", code, stderr)
 	}
 }
+
+func TestRunCrossPackageRelation(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod": "module example.com/consumer\n\ngo 1.25\n",
+		"a/model/user.go": `package model
+
+import bmodel "example.com/consumer/b/model"
+
+//kanna:table
+type User struct {
+	ID    int
+	Items []bmodel.Item ` + "`" + `orm:"has_many,foreign_key:user_id"` + "`" + `
+}
+`,
+		"b/model/item.go": `package model
+
+//kanna:table
+type Item struct {
+	Code   string ` + "`" + `orm:",primary_key"` + "`" + `
+	UserID int
+}
+`,
+	})
+
+	code, _, stderr := runCLI(t, dir, "-source", "./a/model", "-destination", "./a/query")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d\nstderr: %s", code, stderr)
+	}
+
+	got := readGenerated(t, filepath.Join(dir, "a", "query"))
+	for _, want := range []string{
+		`bmodel "example.com/consumer/b/model"`,
+		`bquery "example.com/consumer/b/query"`,
+		"related, err := bquery.Items(db).Scopes(scope.In(\"user_id\", ids)).All(ctx)",
+		"byFK := make(map[int][]bmodel.Item)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRunCrossPackageSharedQueryDirRefused(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod": "module example.com/consumer\n\ngo 1.25\n",
+		"model/user.go": `package model
+
+import other "example.com/consumer/othermodel"
+
+//kanna:table
+type User struct {
+	ID    int
+	Items []other.Item ` + "`" + `orm:"has_many,foreign_key:user_id"` + "`" + `
+}
+`,
+		"othermodel/item.go": `package othermodel
+
+//kanna:table
+type Item struct {
+	ID     int
+	UserID int
+}
+`,
+	})
+
+	code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./query")
+	if code != exit.Error || !strings.Contains(stderr, "destinations of their own") {
+		t.Errorf("Run() = %d, stderr = %q", code, stderr)
+	}
+}
