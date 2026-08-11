@@ -16,7 +16,7 @@ layer as it lands.
 | `kanna-di`      | dependency-injection constructors            | available |
 | `kanna-fixture` | test fixtures from model structs             | available |
 | `kanna-mapper`  | struct-to-struct mapping                     | available |
-| `kanna-orm`     | query helpers from model structs             | planned   |
+| `kanna-orm`     | query helpers from model structs             | available |
 | `kanna-i18n`    | typed message constructors from locale files | available |
 
 Nothing is released yet, so import paths and flags may still move.
@@ -404,6 +404,91 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 a field can be handled: renamed with `map:"Name"`, excluded from the domain side with `map:"-"`, excluded from the wire
 side with `-ignore` where there is no tag to write, converted through a registered function, and converted through one
 that can fail. CI regenerates it and fails if the output would change.
+
+## kanna-orm
+
+Generates type-safe query code from annotated model structs: a factory returning `orm.Query[T]` per table, row scanning, relations with eager loading, and automatic timestamps. The generated code is plain Go on top of the `orm/` runtime, which brings the query builder, MySQL/PostgreSQL dialects, and transactions.
+
+### Install
+
+```sh
+go get -tool github.com/go-kanna/kanna/cmd/kanna-orm
+```
+
+### Annotate
+
+`//kanna:table` opts a struct in; everything else is inferred from the fields and overridden with `orm` tags where the inference is not what the schema says.
+
+```go
+package model
+
+import "time"
+
+//kanna:table
+type User struct {
+	ID        int       // primary key by name
+	Name      string    // column "name"
+	Email     string    `orm:"email_address"` // explicit column name
+	CreatedAt time.Time // set automatically on create
+	Posts     []Post    `orm:"has_many,foreign_key:user_id"`
+}
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+	Title  string
+	User   *User `orm:"belongs_to,foreign_key:user_id"`
+}
+```
+
+### Generate
+
+```go
+//go:generate go tool kanna-orm -source ./model -destination ./query
+```
+
+The destination must be a package of its own — generating into the model package would leave it uncompilable whenever the output goes stale.
+
+| Flag | Description |
+|------|-------------|
+| `-source <pkg>` | source package to scan |
+| `-destination <dir>` | output directory for `orm_gen.go` |
+| `-package <name>` | generated package name (defaults to what the destination declares) |
+| `-check` | verify the output is up to date instead of writing it |
+
+### Use
+
+```go
+db := orm.New(sqlDB, orm.MySQL) // or orm.PostgreSQL
+
+users, err := query.Users(db).Where("name LIKE ?", "A%").OrderBy("id").All(ctx)
+posts, err := query.Posts(db).Preload("User").All(ctx)
+
+err = db.Transaction(ctx, func(tx orm.Querier) error {
+	return query.Users(tx).Create(ctx, &model.User{Name: "Alice"})
+})
+```
+
+See [examples/orm](./examples/orm) for the full tour: scopes, joins, the three preload kinds, transactions, batch inserts, and upserts against real MySQL and PostgreSQL.
+
+### Tags
+
+The first element of an `orm` tag is either a relation kind or a column name; everything after it is an option.
+
+| Tag | Meaning |
+|-----|---------|
+| *(no tag)* | column inferred from the field name (`CreatedAt` → `created_at`) |
+| `orm:"col_name"` | explicit column name |
+| `orm:"-"` | not a column |
+| `orm:",primary_key"` | primary key (default: the field named `ID`) |
+| `orm:",created_at"` / `orm:",updated_at"` | timestamp managed on create/update (default: fields named `CreatedAt`/`UpdatedAt`) |
+| `orm:"has_many,foreign_key:user_id"` | one-to-many; the field is a slice |
+| `orm:"has_one,foreign_key:user_id"` | one-to-one; the target holds the key |
+| `orm:"belongs_to,foreign_key:user_id"` | the owning side; this struct holds the key |
+| `orm:"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_id"` | via a join table |
+
+Table names are pluralized snake_case (`UserProfile` → `user_profiles`); `//kanna:table name=people` overrides one. Name inference is mechanical — there is deliberately no acronym dictionary, so a mixed-case name like `OAuthToken` takes its column from the tag. Anything malformed — an unknown option, a relation whose target generates no queries, a missing foreign key column — is a positioned error, not a silent skip.
 
 ## kanna-i18n
 
