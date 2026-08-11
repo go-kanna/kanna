@@ -1314,3 +1314,18 @@ func TestUpsertRequiresPrimaryKey(t *testing.T) {
 		t.Errorf("no query should run, got %v", tq.Queries)
 	}
 }
+
+func TestRewriteKeepsPlaceholdersInsideDollarQuotedStrings(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	_, _ = q.Where("body = $$?$$ AND note = $tag$it's ?$tag$ AND price > 1$ AND id = ?", 1).All(t.Context())
+
+	got := tq.LastQuery()
+	want := `SELECT "id", "name" FROM "users" WHERE body = $$?$$ AND note = $tag$it's ?$tag$ AND price > 1$ AND id = $1`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}

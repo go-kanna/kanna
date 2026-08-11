@@ -62,8 +62,9 @@ func (d postgresDialect) ReturningClause(pk string) string {
 
 // rewritePlaceholders converts ? placeholders to the dialect's form ($1, $2, …
 // for PostgreSQL; MySQL keeps ? and returns early). Question marks inside
-// single-quoted strings and quoted identifiers are left alone, with a doubled
-// closing quote staying inside its region. PostgreSQL's JSONB ?/?|/?&
+// single-quoted strings, quoted identifiers, and dollar-quoted strings are
+// left alone, with a doubled closing quote staying inside its region and an
+// unterminated quote running to the end. PostgreSQL's JSONB ?/?|/?&
 // operators are indistinguishable from placeholders at this level — use the
 // jsonb_exists* functions in clauses instead.
 func rewritePlaceholders(d Dialect, query string) string {
@@ -90,6 +91,13 @@ func rewritePlaceholders(d Dialect, query string) string {
 		case c == '\'' || c == '"' || c == '`':
 			quote = c
 			b.WriteByte(c)
+		case c == '$':
+			if end, ok := dollarQuote(query, i); ok {
+				b.WriteString(query[i:end])
+				i = end - 1
+			} else {
+				b.WriteByte(c)
+			}
 		case c == '?':
 			b.WriteString(d.Placeholder(idx))
 			idx++
@@ -98,4 +106,35 @@ func rewritePlaceholders(d Dialect, query string) string {
 		}
 	}
 	return b.String()
+}
+
+// dollarQuote reports the end (exclusive) of the PostgreSQL dollar-quoted
+// string opening at start, where query[start] is '$'. An unterminated quote
+// runs to the end of the query, the same way an unterminated single quote
+// does. ok is false when start opens no dollar quote at all — a bare dollar
+// sign, or a positional parameter like $1.
+func dollarQuote(query string, start int) (int, bool) {
+	j := start + 1
+	if j < len(query) && isIdentStart(query[j]) {
+		for j < len(query) && isIdentPart(query[j]) {
+			j++
+		}
+	}
+	if j >= len(query) || query[j] != '$' {
+		return 0, false
+	}
+	delim := query[start : j+1]
+	rest := strings.Index(query[j+1:], delim)
+	if rest < 0 {
+		return len(query), true
+	}
+	return j + 1 + rest + len(delim), true
+}
+
+func isIdentStart(c byte) bool {
+	return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+}
+
+func isIdentPart(c byte) bool {
+	return isIdentStart(c) || ('0' <= c && c <= '9')
 }
