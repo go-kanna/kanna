@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,14 +16,18 @@ import (
 	"github.com/go-kanna/kanna/internal/output"
 )
 
+// defaultOutputFile is the name given to the generated file inside the
+// destination directory.
+const defaultOutputFile = "i18n_gen.go"
+
 // Config holds the options for a single generation run. Each field corresponds
 // to exactly one flag, so a run is described entirely by what was typed.
 type Config struct {
-	Locales string
-	Default string
-	Out     string
-	Package string
-	Check   bool
+	Locales     string
+	Default     string
+	Destination string
+	Package     string
+	Check       bool
 }
 
 // CLI is the command-line entry point for the message generator. Out and Err
@@ -78,11 +83,6 @@ func (c CLI) Run(args []string) int {
 		return exit.Usage
 	}
 
-	if filepath.Ext(cfg.Out) != ".go" {
-		fmt.Fprintf(c.Err, "-out %q must name a .go file\n", cfg.Out)
-		return exit.Usage
-	}
-
 	return c.generate(cfg, tag)
 }
 
@@ -93,9 +93,14 @@ func (c CLI) generate(cfg Config, tag language.Tag) int {
 		return exit.Error
 	}
 
-	pkg := cfg.Package
-	if pkg == "" {
-		pkg = filepath.Base(filepath.Dir(c.resolveAbs(cfg.Out)))
+	pkg, err := output.PackageName(cfg.Package, c.resolveAbs(cfg.Destination), defaultOutputFile)
+	if err != nil {
+		fmt.Fprintln(c.Err, err)
+		return exit.Usage
+	}
+	if !token.IsIdentifier(pkg) {
+		fmt.Fprintf(c.Err, "invalid package name %q; use -package to override\n", pkg)
+		return exit.Usage
 	}
 
 	src, err := Render(model, pkg)
@@ -104,7 +109,7 @@ func (c CLI) generate(cfg Config, tag language.Tag) int {
 		return exit.Error
 	}
 
-	out := output.Resolve(c.Dir, cfg.Out)
+	out := filepath.Join(output.Resolve(c.Dir, cfg.Destination), defaultOutputFile)
 	if cfg.Check {
 		if err := output.CheckUpToDate(out, src); err != nil {
 			fmt.Fprintln(c.Err, err)
@@ -122,7 +127,8 @@ func (c CLI) generate(cfg Config, tag language.Tag) int {
 }
 
 // resolveAbs resolves against Dir and then Abs, for deriving the package name
-// from a relative -out such as "." whose base would otherwise name nothing.
+// from a relative -destination such as "." whose base would otherwise name
+// nothing.
 func (c CLI) resolveAbs(path string) string {
 	resolved := output.Resolve(c.Dir, path)
 	abs, err := filepath.Abs(resolved)
@@ -149,7 +155,7 @@ func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 
 	fs.StringVar(&cfg.Locales, "locales", "locales", "directory containing locale files")
 	fs.StringVar(&cfg.Default, "default", "en", "default language defining the generated signatures")
-	fs.StringVar(&cfg.Out, "out", "messages/messages.gen.go", "output file path")
+	fs.StringVar(&cfg.Destination, "destination", "messages", "output directory for the generated file")
 	fs.StringVar(&cfg.Package, "package", "", "package name of the generated file")
 	fs.BoolVar(&cfg.Check, "check", false, "verify the output is up to date instead of writing it")
 	fs.BoolVar(&showVersion, "version", false, "print version")
@@ -183,8 +189,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  -locales <dir>    directory containing locale files (default: locales)")
 	fmt.Fprintln(w, "  -default <lang>   default language defining the generated signatures (default: en)")
-	fmt.Fprintln(w, "  -out <path>       output file path (default: messages/messages.gen.go)")
-	fmt.Fprintln(w, "  -package <name>   package name of the generated file (default: base of the output directory)")
+	fmt.Fprintln(w, "  -destination <dir>  output directory for the generated file (default: messages)")
+	fmt.Fprintln(w, "  -package <name>     package name of the generated file (defaults to what the destination declares)")
 	fmt.Fprintln(w, "  -check            verify the output is up to date instead of writing it")
 	fmt.Fprintln(w, "  --version         print version")
 	fmt.Fprintln(w, "  -h, --help        show this help")
