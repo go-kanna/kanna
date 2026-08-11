@@ -6,6 +6,10 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: kanna_test
+    volumes:
+      # kanna_example is the throwaway database examples/orm plays in, kept
+      # apart from kanna_test so the integration tests never share state.
+      - ./init/mysql.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
@@ -19,6 +23,8 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: kanna_test
+    volumes:
+      - ./init/postgres.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

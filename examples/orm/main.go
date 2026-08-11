@@ -93,14 +93,25 @@ var createTablesPostgreSQL = []string{
 }
 
 func main() {
-	dialect := flag.String("dialect", "mysql", "database dialect (mysql or postgres)")
+	dialect := flag.String("dialect", "", "database dialect (mysql or postgres; default: both)")
 	flag.Parse()
 
 	ctx := context.Background()
 
-	db, createTableSQLs := openDB(ctx, *dialect)
+	dialects := []string{"mysql", "postgres"}
+	if *dialect != "" {
+		dialects = []string{*dialect}
+	}
+	for _, d := range dialects {
+		fmt.Printf("========== %s ==========\n", d)
+		run(ctx, d)
+	}
+}
+
+func run(ctx context.Context, dialect string) {
+	db, createTableSQLs := openDB(ctx, dialect)
 	if db == nil {
-		fmt.Println("databases are not running; start them with:")
+		fmt.Println("database is not running; start it with:")
 		fmt.Println("  docker compose -f ../../orm/integration/compose.yaml up -d --wait")
 		return
 	}
@@ -192,7 +203,7 @@ func main() {
 	}
 
 	// Filter with Where
-	fmt.Println("Where (name LIKE 'A%%'):")
+	fmt.Println("Where (name LIKE 'A%'):")
 	filtered, err := userRepo.FindAll(ctx, scope.Where("name LIKE ?", "A%"))
 	if err != nil {
 		log.Fatalf("where: %v", err)
@@ -304,8 +315,13 @@ func main() {
 
 	// Verify rollback
 	_, err = query.Users(db).Where("name = ?", "GhostUser").First(ctx)
-	if err != nil {
+	switch {
+	case errors.Is(err, orm.ErrNotFound):
 		fmt.Println("  GhostUser not found — rollback confirmed.")
+	case err != nil:
+		log.Fatalf("verify rollback: %v", err)
+	default:
+		log.Fatal("GhostUser survived the rollback")
 	}
 
 	// COUNT
@@ -445,10 +461,10 @@ func openDB(ctx context.Context, dialect string) (*orm.DB, []string) {
 
 	switch dialect {
 	case "mysql":
-		sqlDB, err = sql.Open("mysql", "root:root@tcp(127.0.0.1:3306)/kanna_test?parseTime=true")
+		sqlDB, err = sql.Open("mysql", "root:root@tcp(127.0.0.1:3306)/kanna_example?parseTime=true")
 		d, tables = orm.MySQL, createTablesMySQL
 	case "postgres":
-		sqlDB, err = sql.Open("pgx", "postgres://postgres:postgres@127.0.0.1:5432/kanna_test?sslmode=disable")
+		sqlDB, err = sql.Open("pgx", "postgres://postgres:postgres@127.0.0.1:5432/kanna_example?sslmode=disable")
 		d, tables = orm.PostgreSQL, createTablesPostgreSQL
 	default:
 		log.Fatalf("unknown dialect: %s (use 'mysql' or 'postgres')", dialect)
