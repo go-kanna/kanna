@@ -1580,3 +1580,39 @@ func TestCreateAllRejectsMixedPKs(t *testing.T) {
 		t.Errorf("no query should run, got %v", tq.Queries)
 	}
 }
+
+type testKeyID int64
+
+func TestCreateTreatsZeroNamedKeyAsUnset(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	tq.LastID = 5
+
+	var captured testKeyID
+	q := orm.NewQuery[testUser](
+		tq, "things", []string{"id", "name"}, "id",
+		func(*sql.Rows) (testUser, error) { return testUser{}, nil },
+		func(u *testUser, includesPK bool) ([]string, []any) {
+			if includesPK {
+				return []string{"id", "name"}, []any{testKeyID(u.ID), u.Name}
+			}
+			return []string{"name"}, []any{u.Name}
+		},
+		func(u *testUser, id int64) { captured = testKeyID(id); u.ID = int(id) },
+	)
+
+	u := testUser{Name: "alice"}
+	if err := q.Create(t.Context(), &u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := "INSERT INTO `things` (`name`) VALUES (?)"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want the key column excluded: %q", got.SQL, want)
+	}
+	if captured != 5 {
+		t.Errorf("setPK got %d, want the generated 5", captured)
+	}
+}

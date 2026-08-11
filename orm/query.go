@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -963,8 +964,11 @@ func (q *Query[T]) rewrite(query string, args []any) (string, []any) {
 	return rewritePlaceholders(q.db.dialect(), query), args
 }
 
-// zeroPK reports whether a primary key value is absent. The type switch covers
-// the key types generated code emits; reflection stays out of the runtime.
+// zeroPK reports whether a primary key value is absent. The type switch
+// covers the predeclared key types without allocation; a named key type
+// (model.Key) falls through to reflection. That is the one reflective moment
+// in the runtime, confined to this write-time guard — scanning and column
+// mapping stay resolved at generation time.
 func zeroPK(v any) bool {
 	switch x := v.(type) {
 	case nil:
@@ -992,7 +996,8 @@ func zeroPK(v any) bool {
 	case string:
 		return x == ""
 	default:
-		return false
+		rv := reflect.ValueOf(v)
+		return rv.IsValid() && rv.IsZero()
 	}
 }
 
