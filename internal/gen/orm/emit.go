@@ -147,6 +147,12 @@ func (f *fileEmit) resolve(t Table, r Relation) (relEmit, error) {
 		ParentPKField: t.PK().Name,
 	}
 	f.addTypeDeps(r.TypeDeps)
+	if r.JoinScan != nil && r.IsPointer {
+		// The scan temporaries declare each joined field's type.
+		for _, jf := range r.JoinScan.Fields {
+			f.addTypeDeps(jf.TypePkgs)
+		}
+	}
 
 	if r.TargetPkgPath == "" {
 		return re, nil
@@ -384,9 +390,14 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 	b.WriteString("\tcols, _ := rows.Columns()\n")
 	fmt.Fprintf(b, "\tvar v %s\n", n.Type)
 	for _, r := range rels {
-		if r.JoinScan != nil && r.IsPointer {
-			fmt.Fprintf(b, "\tvar joinScan%sPK %s\n", r.FieldName, r.JoinScan.NullType)
-			fmt.Fprintf(b, "\tvar joinScan%s %s\n", r.FieldName, r.TargetTypeQ)
+		if r.JoinScan == nil || !r.IsPointer {
+			continue
+		}
+		// Every joined column scans through a pointer, so a LEFT JOIN that
+		// matched no row (all NULLs) still scans; the primary key temporary
+		// doubles as the row-present signal.
+		for _, jf := range r.JoinScan.Fields {
+			fmt.Fprintf(b, "\tvar joinScan%s%s %s\n", r.FieldName, jf.Name, pointerTo(jf.GoType))
 		}
 	}
 	b.WriteString("\tdest := make([]any, len(cols))\n")
@@ -402,12 +413,9 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 		}
 		for _, jf := range r.JoinScan.Fields {
 			fmt.Fprintf(b, "\t\tcase \"%s__%s\":\n", r.FieldName, jf.Column)
-			switch {
-			case r.IsPointer && jf.PrimaryKey:
-				fmt.Fprintf(b, "\t\t\tdest[i] = &joinScan%sPK\n", r.FieldName)
-			case r.IsPointer:
-				fmt.Fprintf(b, "\t\t\tdest[i] = &joinScan%s.%s\n", r.FieldName, jf.Name)
-			default:
+			if r.IsPointer {
+				fmt.Fprintf(b, "\t\t\tdest[i] = &joinScan%s%s\n", r.FieldName, jf.Name)
+			} else {
 				fmt.Fprintf(b, "\t\t\tdest[i] = &v.%s.%s\n", r.FieldName, jf.Name)
 			}
 		}
@@ -418,10 +426,21 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 		if r.JoinScan == nil || !r.IsPointer {
 			continue
 		}
-		fmt.Fprintf(b, "\tif joinScan%sPK.Valid {\n", r.FieldName)
-		fmt.Fprintf(b, "\t\tjoinScan%s.%s = %s(joinScan%sPK%s)\n",
-			r.FieldName, r.JoinScan.PK.Name, r.JoinScan.PK.GoType, r.FieldName, r.JoinScan.NullField)
-		fmt.Fprintf(b, "\t\tv.%s = &joinScan%s\n", r.FieldName, r.FieldName)
+		fmt.Fprintf(b, "\tif joinScan%s%s != nil {\n", r.FieldName, r.JoinScan.PK.Name)
+		fmt.Fprintf(b, "\t\tvar joined %s\n", r.TargetTypeQ)
+		for _, jf := range r.JoinScan.Fields {
+			switch {
+			case jf.PrimaryKey:
+				fmt.Fprintf(b, "\t\tjoined.%s = %s\n", jf.Name, derefTemp(jf, "joinScan"+r.FieldName+jf.Name))
+			case strings.HasPrefix(jf.GoType, "*"):
+				fmt.Fprintf(b, "\t\tjoined.%s = joinScan%s%s\n", jf.Name, r.FieldName, jf.Name)
+			default:
+				fmt.Fprintf(b, "\t\tif joinScan%s%s != nil {\n", r.FieldName, jf.Name)
+				fmt.Fprintf(b, "\t\t\tjoined.%s = *joinScan%s%s\n", jf.Name, r.FieldName, jf.Name)
+				b.WriteString("\t\t}\n")
+			}
+		}
+		fmt.Fprintf(b, "\t\tv.%s = &joined\n", r.FieldName)
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("\treturn v, err\n}\n\n")
@@ -623,6 +642,24 @@ func writeCollectPKs(b *strings.Builder, r relEmit) {
 	b.WriteString("\tfor i := range results {\n")
 	fmt.Fprintf(b, "\t\tids[i] = results[i].%s\n", r.ParentPKField)
 	b.WriteString("\t}\n")
+}
+
+// pointerTo is the scan temporary's type for a joined field: the field type
+// when it is already a pointer, a pointer to it otherwise.
+func pointerTo(goType string) string {
+	if strings.HasPrefix(goType, "*") {
+		return goType
+	}
+	return "*" + goType
+}
+
+// derefTemp reads a scan temporary back into a field: a dereference for a
+// value field, the pointer itself for a pointer field.
+func derefTemp(f Field, temp string) string {
+	if strings.HasPrefix(f.GoType, "*") {
+		return temp
+	}
+	return "*" + temp
 }
 
 func unexportedName(s string) string {

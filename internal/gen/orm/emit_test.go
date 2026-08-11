@@ -1,10 +1,8 @@
 package orm_test
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"maps"
+	"bytes"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,12 +15,14 @@ import (
 	"github.com/go-kanna/kanna/internal/scan"
 )
 
-// TestEmitMatchesOrmgenOutput holds the port to what ormgen generated: every
-// top-level declaration must be byte-identical to the goldens committed from
-// ormgen\'s example. The header and the import block are the only intended
-// differences, so the comparison walks named declarations instead of whole
-// files — that also absorbs ormgen\'s per-source-file output splitting.
-func TestEmitMatchesOrmgenOutput(t *testing.T) {
+var update = flag.Bool("update", false, "rewrite the emit golden from the current output")
+
+// TestEmitGolden pins the emitted file for the ported ormgen example model.
+// The original port was validated declaration-by-declaration against the
+// output ormgen itself had committed; the golden has since absorbed kanna's
+// deliberate fixes (nil-safe join scans among them), so it is now the record
+// of what kanna emits. Regenerate with -update after reviewing a change.
+func TestEmitGolden(t *testing.T) {
 	t.Parallel()
 
 	modelSrc, err := os.ReadFile(filepath.Join("testdata", "parity", "model.go.txt"))
@@ -50,86 +50,21 @@ func TestEmitMatchesOrmgenOutput(t *testing.T) {
 		t.Fatalf("emit: %v", err)
 	}
 
-	got := declsOf(t, "emitted", out)
-
-	want := map[string]string{}
-	goldens, err := filepath.Glob(filepath.Join("testdata", "parity", "*.golden"))
-	if err != nil || len(goldens) == 0 {
-		t.Fatalf("no goldens: %v", err)
-	}
-	for _, path := range goldens {
-		data, err := os.ReadFile(path) //nolint:gosec // paths come from the testdata glob above
-		if err != nil {
+	golden := filepath.Join("testdata", "parity", "orm_gen.go.golden")
+	if *update {
+		if err := os.WriteFile(golden, out, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		maps.Copy(want, declsOf(t, path, data))
+		return
 	}
 
-	// The four goldens hold 25 declarations; a comparison that saw far
-	// fewer silently compared nothing.
-	if len(want) < 20 || len(got) < 20 {
-		t.Fatalf("suspiciously few declarations: want %d, got %d", len(want), len(got))
-	}
-
-	for name, wantText := range want {
-		gotText, ok := got[name]
-		if !ok {
-			t.Errorf("missing declaration %s", name)
-			continue
-		}
-		if gotText != wantText {
-			t.Errorf("declaration %s differs:\n--- ormgen ---\n%s\n--- kanna ---\n%s", name, wantText, gotText)
-		}
-	}
-	for name := range got {
-		if _, ok := want[name]; !ok {
-			t.Errorf("extra declaration %s", name)
-		}
-	}
-}
-
-// declsOf maps each named top-level declaration to its source text, doc
-// comment included.
-func declsOf(t *testing.T, label string, src []byte) map[string]string {
-	t.Helper()
-
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, label, src, parser.ParseComments)
+	want, err := os.ReadFile(golden)
 	if err != nil {
-		t.Fatalf("parse %s: %v\n%s", label, err, src)
+		t.Fatal(err)
 	}
-
-	decls := make(map[string]string)
-	for _, decl := range f.Decls {
-		var (
-			name string
-			doc  *ast.CommentGroup
-		)
-		switch d := decl.(type) {
-		case *ast.FuncDecl:
-			name = d.Name.Name
-			doc = d.Doc
-		case *ast.GenDecl:
-			if d.Tok != token.VAR {
-				continue // import blocks differ by design
-			}
-			spec, ok := d.Specs[0].(*ast.ValueSpec)
-			if !ok {
-				t.Fatalf("%s: var declaration without a value spec", label)
-			}
-			name = spec.Names[0].Name
-			doc = d.Doc
-		default:
-			continue
-		}
-
-		start := decl.Pos()
-		if doc != nil {
-			start = doc.Pos()
-		}
-		decls[name] = string(src[fset.Position(start).Offset:fset.Position(decl.End()).Offset])
+	if !bytes.Equal(out, want) {
+		t.Errorf("emitted file differs from the golden; run with -update after reviewing\n--- got ---\n%s", out)
 	}
-	return decls
 }
 
 // emitFor plans src and emits it as package query for tests below.

@@ -81,10 +81,8 @@ type Relation struct {
 // JoinScan carries what the emitter needs to scan a joined row directly into
 // the relation field.
 type JoinScan struct {
-	Fields    []Field // the target's column fields
-	PK        Field
-	NullType  string // nullable scan wrapper for pointer relations, e.g. "sql.NullInt64"
-	NullField string // its value accessor, e.g. ".Int64"
+	Fields []Field // the target's column fields
+	PK     Field
 }
 
 // Tables interprets the scanned structs: //kanna:table opts a struct in, orm
@@ -513,11 +511,7 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 	}
 
 	if r.Kind == "belongs_to" || r.Kind == "has_one" {
-		js := &JoinScan{Fields: target.Fields, PK: target.PK()}
-		if r.IsPointer {
-			js.NullType, js.NullField = nullTypeFor(js.PK.GoType)
-		}
-		r.JoinScan = js
+		r.JoinScan = &JoinScan{Fields: target.Fields, PK: target.PK()}
 	}
 	return nil
 }
@@ -670,15 +664,6 @@ func derefType(goType string) (string, bool) {
 		return goType[1:], true
 	}
 	return goType, false
-}
-
-// nullTypeFor is the sql.Null wrapper a pointer relation scans its joined
-// primary key through.
-func nullTypeFor(goType string) (string, string) {
-	if goType == "string" {
-		return "sql.NullString", ".String"
-	}
-	return "sql.NullInt64", ".Int64"
 }
 
 func columnField(t Table, column string) *Field {
