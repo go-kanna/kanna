@@ -62,9 +62,10 @@ func (d postgresDialect) ReturningClause(pk string) string {
 
 // rewritePlaceholders converts ? placeholders to the dialect's form ($1, $2, …
 // for PostgreSQL; MySQL keeps ? and returns early). Question marks inside
-// single-quoted strings, quoted identifiers, and dollar-quoted strings are
-// left alone, with a doubled closing quote staying inside its region and an
-// unterminated quote running to the end. PostgreSQL's JSONB ?/?|/?&
+// single-quoted strings, quoted identifiers, dollar-quoted strings, and
+// E'…' escape strings are left alone: a doubled closing quote stays inside
+// its region, a backslash inside an escape string escapes the next byte, and
+// an unterminated quote runs to the end. PostgreSQL's JSONB ?/?|/?&
 // operators are indistinguishable from placeholders at this level — use the
 // jsonb_exists* functions in clauses instead.
 func rewritePlaceholders(d Dialect, query string) string {
@@ -75,21 +76,36 @@ func rewritePlaceholders(d Dialect, query string) string {
 	b.Grow(len(query) + 8)
 	idx := 1
 	var quote byte
+	var escString bool
 	for i := 0; i < len(query); i++ {
 		c := query[i]
 		switch {
 		case quote != 0:
 			b.WriteByte(c)
-			if c == quote {
+			switch {
+			case escString && c == '\\':
+				// In an escape string a backslash escapes the next byte, so
+				// \' or \\ never terminates the literal.
+				if i+1 < len(query) {
+					b.WriteByte(query[i+1])
+					i++
+				}
+			case c == quote:
 				if i+1 < len(query) && query[i+1] == quote {
 					b.WriteByte(query[i+1])
 					i++
 				} else {
 					quote = 0
+					escString = false
 				}
 			}
 		case c == '\'' || c == '"' || c == '`':
 			quote = c
+			// E'…' opens a PostgreSQL escape string — unless the E ends an
+			// identifier or keyword (LIKE'…'), which opens a standard string.
+			escString = c == '\'' && i >= 1 &&
+				(query[i-1] == 'E' || query[i-1] == 'e') &&
+				(i < 2 || !isIdentPart(query[i-2]))
 			b.WriteByte(c)
 		case c == '$':
 			if end, ok := dollarQuote(query, i); ok {

@@ -528,7 +528,8 @@ func TestBuildSelectWithScopeJoin(t *testing.T) {
 	if !strings.Contains(got.SQL, "INNER JOIN") {
 		t.Errorf("SQL should contain INNER JOIN: %q", got.SQL)
 	}
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users`" +
+		" INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -552,7 +553,8 @@ func TestBuildSelectWithScopeLeftJoin(t *testing.T) {
 	if !strings.Contains(got.SQL, "LEFT JOIN") {
 		t.Errorf("SQL should contain LEFT JOIN: %q", got.SQL)
 	}
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` LEFT JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users`" +
+		" LEFT JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -620,7 +622,8 @@ func TestBuildSelectWithJoinNoSelectColumns(t *testing.T) {
 	_, _ = q.Join("Posts").All(t.Context())
 
 	got := tq.LastQuery()
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users`" +
+		" INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -883,7 +886,8 @@ func TestCountWithJoinCountsDistinctParents(t *testing.T) {
 	}
 
 	got := tq.LastQuery()
-	want := "SELECT COUNT(DISTINCT `users`.`id`) FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
+	want := "SELECT COUNT(DISTINCT `users`.`id`) FROM `users`" +
+		" INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -1418,6 +1422,39 @@ func TestJoinSelectColumnsUseAlias(t *testing.T) {
 	got := tq.LastQuery()
 	want := "SELECT `users`.`id`, `users`.`name`, `Manager`.`id` AS `Manager__id`, `Manager`.`name` AS `Manager__name`" +
 		" FROM `users` INNER JOIN `users` AS `Manager` ON `Manager`.`id` = `users`.`manager_id`"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestRewriteKeepsPlaceholdersInsideEscapeStrings(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	_, _ = q.Where(`note = E'it\'s ?' AND id = ?`, 1).All(t.Context())
+
+	got := tq.LastQuery()
+	want := `SELECT "id", "name" FROM "users" WHERE note = E'it\'s ?' AND id = $1`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestRewriteStandardStringTreatsBackslashLiterally(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	// In a standard-conforming string a backslash does not escape the quote,
+	// and a keyword ending in E touching the quote (LIKE'…') opens a standard
+	// string, not an escape string.
+	_, _ = q.Where(`path = '\' AND name LIKE'%x%' AND id = ?`, 1).All(t.Context())
+
+	got := tq.LastQuery()
+	want := `SELECT "id", "name" FROM "users" WHERE path = '\' AND name LIKE'%x%' AND id = $1`
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
