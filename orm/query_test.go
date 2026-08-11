@@ -528,7 +528,7 @@ func TestBuildSelectWithScopeJoin(t *testing.T) {
 	if !strings.Contains(got.SQL, "INNER JOIN") {
 		t.Errorf("SQL should contain INNER JOIN: %q", got.SQL)
 	}
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -552,7 +552,7 @@ func TestBuildSelectWithScopeLeftJoin(t *testing.T) {
 	if !strings.Contains(got.SQL, "LEFT JOIN") {
 		t.Errorf("SQL should contain LEFT JOIN: %q", got.SQL)
 	}
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` LEFT JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users` LEFT JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -574,8 +574,8 @@ func TestBuildSelectWithJoinSelectColumns(t *testing.T) {
 	_, _ = q.Join("Author").All(t.Context())
 
 	got := tq.LastQuery()
-	want := "SELECT `users`.`id`, `users`.`name`, `authors`.`id` AS `Author__id`, `authors`.`name` AS `Author__name`" +
-		" FROM `users` INNER JOIN `authors` ON `authors`.`id` = `users`.`author_id`"
+	want := "SELECT `users`.`id`, `users`.`name`, `Author`.`id` AS `Author__id`, `Author`.`name` AS `Author__name`" +
+		" FROM `users` INNER JOIN `authors` AS `Author` ON `Author`.`id` = `users`.`author_id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -597,8 +597,8 @@ func TestBuildSelectWithJoinSelectColumnsPostgreSQL(t *testing.T) {
 	_, _ = q.Join("Author").All(t.Context())
 
 	got := tq.LastQuery()
-	want := `SELECT "users"."id", "users"."name", "authors"."id" AS "Author__id", "authors"."name" AS "Author__name"` +
-		` FROM "users" INNER JOIN "authors" ON "authors"."id" = "users"."author_id"`
+	want := `SELECT "users"."id", "users"."name", "Author"."id" AS "Author__id", "Author"."name" AS "Author__name"` +
+		` FROM "users" INNER JOIN "authors" AS "Author" ON "Author"."id" = "users"."author_id"`
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -620,7 +620,7 @@ func TestBuildSelectWithJoinNoSelectColumns(t *testing.T) {
 	_, _ = q.Join("Posts").All(t.Context())
 
 	got := tq.LastQuery()
-	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -883,7 +883,7 @@ func TestCountWithJoinCountsDistinctParents(t *testing.T) {
 	}
 
 	got := tq.LastQuery()
-	want := "SELECT COUNT(DISTINCT `users`.`id`) FROM `users` INNER JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+	want := "SELECT COUNT(DISTINCT `users`.`id`) FROM `users` INNER JOIN `posts` AS `Posts` ON `Posts`.`user_id` = `users`.`id`"
 	if got.SQL != want {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
@@ -1375,5 +1375,50 @@ func TestCreateAllWithNoColumnsErrors(t *testing.T) {
 	}
 	if len(tq.Queries) != 0 {
 		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}
+
+func TestJoinSelfRelationUsesAlias(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	q := newTestQuery(tq)
+	q.RegisterJoin("Manager", orm.JoinConfig{
+		TargetTable:  "users",
+		TargetColumn: "id",
+		SourceTable:  "users",
+		SourceColumn: "manager_id",
+	})
+
+	_, _ = q.Join("Manager").All(t.Context())
+
+	got := tq.LastQuery()
+	want := "SELECT `users`.`id`, `users`.`name` FROM `users`" +
+		" INNER JOIN `users` AS `Manager` ON `Manager`.`id` = `users`.`manager_id`"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestJoinSelectColumnsUseAlias(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	q := newTestQuery(tq)
+	q.RegisterJoin("Manager", orm.JoinConfig{
+		TargetTable:   "users",
+		TargetColumn:  "id",
+		SourceTable:   "users",
+		SourceColumn:  "manager_id",
+		SelectColumns: []string{"id", "name"},
+	})
+
+	_, _ = q.Join("Manager").All(t.Context())
+
+	got := tq.LastQuery()
+	want := "SELECT `users`.`id`, `users`.`name`, `Manager`.`id` AS `Manager__id`, `Manager`.`name` AS `Manager__name`" +
+		" FROM `users` INNER JOIN `users` AS `Manager` ON `Manager`.`id` = `users`.`manager_id`"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }

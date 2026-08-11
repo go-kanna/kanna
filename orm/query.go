@@ -225,11 +225,14 @@ func (q *Query[T]) applyJoin(joinType, name string) {
 	if slices.Contains(q.activeJoinNames, name) {
 		return
 	}
+	// The joined table is aliased by relation name, so a self-relation and
+	// two relations targeting the same table stay distinguishable.
 	clause := fmt.Sprintf(
-		"%s %s ON %s.%s = %s.%s",
+		"%s %s AS %s ON %s.%s = %s.%s",
 		joinType,
 		q.qi(cfg.TargetTable),
-		q.qi(cfg.TargetTable), q.qi(cfg.TargetColumn),
+		q.qi(name),
+		q.qi(name), q.qi(cfg.TargetColumn),
 		q.qi(cfg.SourceTable), q.qi(cfg.SourceColumn),
 	)
 	q.joins = append(q.joins, clause)
@@ -700,7 +703,7 @@ func (q *Query[T]) buildSelect() (string, []any) {
 			cfg := q.joinDefs[name]
 			for _, col := range cfg.SelectColumns {
 				b.WriteString(", ")
-				b.WriteString(q.qi(cfg.TargetTable))
+				b.WriteString(q.qi(name))
 				b.WriteByte('.')
 				b.WriteString(q.qi(col))
 				b.WriteString(" AS ")
