@@ -240,3 +240,31 @@ type Post struct {
 		t.Fatalf("err = %v, want a shadowing error", err)
 	}
 }
+
+func TestEmitRejectsFixedQualifierCollision(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadFileAs(t, "sql", `package sql
+
+//kanna:table
+type User struct{ ID int }
+`)
+	structs, ds := scan.Structs([]*packages.Package{pkg})
+	if diag.HasErrors(ds) {
+		t.Fatalf("scan: %s", diag.Format(ds))
+	}
+	tables, ds := orm.Tables(structs)
+	if diag.HasErrors(ds) {
+		t.Fatalf("plan: %s", diag.Format(ds))
+	}
+
+	_, err := orm.Emit(orm.EmitParams{
+		PackageName: "query",
+		SourceName:  "sql",
+		SourcePath:  "example.com/sql",
+		Tables:      tables,
+	})
+	if err == nil || !strings.Contains(err.Error(), "collides") {
+		t.Fatalf("err = %v, want an import-collision error", err)
+	}
+}

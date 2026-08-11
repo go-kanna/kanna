@@ -104,11 +104,23 @@ func newFileEmit(p EmitParams) (*fileEmit, error) {
 		}
 	}
 
+	// The fixed imports own their qualifiers, and two packages rendered by
+	// the same name would be ambiguous the moment both appear in one type.
+	fixed := map[string]bool{"orm": true, "scope": true, "sql": true, "context": true, "time": true}
+	seen := map[string]bool{}
 	for _, name := range f.qualifiers {
-		if reservedLocals[name] {
+		switch {
+		case reservedLocals[name]:
 			return nil, fmt.Errorf(
 				"package qualifier %q would be shadowed by a local the generated code declares; rename or alias the package", name)
+		case fixed[name]:
+			return nil, fmt.Errorf(
+				"package qualifier %q collides with an import the generated file always carries; rename or alias the package", name)
+		case seen[name]:
+			return nil, fmt.Errorf(
+				"two packages would both be qualified as %q in the generated file; rename or alias one", name)
 		}
+		seen[name] = true
 	}
 
 	return f, nil
