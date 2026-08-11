@@ -393,6 +393,12 @@ func (q *Query[T]) Create(ctx context.Context, t *T) error {
 
 	includesPK := q.setPK == nil
 	columns, values := q.colValPairs(t, includesPK)
+	if len(columns) == 0 {
+		// A default-only row has no portable INSERT: PostgreSQL wants
+		// DEFAULT VALUES where MySQL wants an empty column list. A model with
+		// nothing to insert is not worth that fork.
+		return errors.New("orm: Create requires at least one column")
+	}
 
 	query := q.buildInsert(columns)
 	query, values = q.rewrite(query, values)
@@ -447,6 +453,9 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 
 	includesPK := q.setPK == nil
 	columns, _ := q.colValPairs(items[0], includesPK)
+	if len(columns) == 0 {
+		return errors.New("orm: CreateAll requires at least one column")
+	}
 
 	var allValues []any
 	for _, item := range items {

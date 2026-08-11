@@ -1329,3 +1329,51 @@ func TestRewriteKeepsPlaceholdersInsideDollarQuotedStrings(t *testing.T) {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }
+
+// --- auto-generated PK only: no insertable column ---
+
+func newTestPKOnlyQuery(tq *orm.TestQuerier) *orm.Query[testUser] {
+	return orm.NewQuery[testUser](
+		tq, "onlys", []string{"id"}, "id",
+		func(*sql.Rows) (testUser, error) { return testUser{}, nil },
+		func(u *testUser, includesPK bool) ([]string, []any) {
+			if includesPK {
+				return []string{"id"}, []any{u.ID}
+			}
+			return nil, nil
+		},
+		setTestUserPK,
+	)
+}
+
+func TestCreateWithNoColumnsErrors(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestPKOnlyQuery(tq)
+
+	u := testUser{}
+	err := q.Create(t.Context(), &u)
+	if err == nil || !strings.Contains(err.Error(), "at least one column") {
+		t.Fatalf("err = %v, want at-least-one-column error", err)
+	}
+	if len(tq.Queries) != 0 {
+		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}
+
+func TestCreateAllWithNoColumnsErrors(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestPKOnlyQuery(tq)
+
+	items := []*testUser{{}, {}}
+	err := q.CreateAll(t.Context(), items)
+	if err == nil || !strings.Contains(err.Error(), "at least one column") {
+		t.Fatalf("err = %v, want at-least-one-column error", err)
+	}
+	if len(tq.Queries) != 0 {
+		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}
