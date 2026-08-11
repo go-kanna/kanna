@@ -43,7 +43,7 @@ func TestEmitGolden(t *testing.T) {
 	out, err := orm.Emit(orm.EmitParams{
 		PackageName: "query",
 		SourceName:  "model",
-		SourcePath:  "example.com/model",
+		SourcePath:  "model",
 		Tables:      tables,
 	})
 	if err != nil {
@@ -83,7 +83,7 @@ func emitFor(t *testing.T, src string) string {
 	out, err := orm.Emit(orm.EmitParams{
 		PackageName: "query",
 		SourceName:  "model",
-		SourcePath:  "example.com/model",
+		SourcePath:  "model",
 		Tables:      tables,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ type Post struct {
 	_, err := orm.Emit(orm.EmitParams{
 		PackageName: "query",
 		SourceName:  "ids",
-		SourcePath:  "example.com/ids",
+		SourcePath:  "ids",
 		Tables:      tables,
 	})
 	if err == nil || !strings.Contains(err.Error(), "shadow") {
@@ -261,10 +261,67 @@ type User struct{ ID int }
 	_, err := orm.Emit(orm.EmitParams{
 		PackageName: "query",
 		SourceName:  "sql",
-		SourcePath:  "example.com/sql",
+		SourcePath:  "sql",
 		Tables:      tables,
 	})
 	if err == nil || !strings.Contains(err.Error(), "collides") {
 		t.Fatalf("err = %v, want an import-collision error", err)
+	}
+}
+
+func TestEmitImportsIntegerKeySetterType(t *testing.T) {
+	t.Parallel()
+
+	// time.Duration stands in for any named integer key from another package:
+	// the setter casts through it, so its package must be imported even when
+	// no timestamp or relation would pull it in.
+	got := emitFor(t, `package model
+
+import "time"
+
+//kanna:table
+type Span struct {
+	ID time.Duration
+}
+`)
+	for _, want := range []string{
+		"\"time\"",
+		"v.ID = time.Duration(id)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestEmitValueSingularJoinScansNullable(t *testing.T) {
+	t.Parallel()
+
+	got := emitFor(t, `package model
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+	User   User `+"`"+`orm:"belongs_to,foreign_key:user_id"`+"`"+`
+}
+
+//kanna:table
+type User struct {
+	ID   int
+	Name string
+}
+`)
+	for _, want := range []string{
+		"var joinScanUserID *int",
+		"var joinScanUserName *string",
+		"v.User = joined",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "dest[i] = &v.User.") {
+		t.Errorf("value join still scans directly into the field:\n%s", got)
 	}
 }

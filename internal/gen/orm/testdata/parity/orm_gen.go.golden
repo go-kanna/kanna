@@ -7,9 +7,9 @@ import (
 	"database/sql"
 	"time"
 
-	"example.com/model"
 	"github.com/go-kanna/kanna/orm"
 	"github.com/go-kanna/kanna/orm/scope"
+	"model"
 )
 
 // Users returns a new Query for the users table.

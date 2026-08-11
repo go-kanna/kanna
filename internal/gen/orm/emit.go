@@ -87,6 +87,10 @@ func newFileEmit(p EmitParams) (*fileEmit, error) {
 
 	f.qualifiers = append(f.qualifiers, p.SourceName)
 	for _, t := range p.Tables {
+		if pk := t.PK(); pk.IntKind {
+			// The setter casts through the key's named type.
+			f.addTypeDeps(pk.TypePkgs)
+		}
 		for _, field := range t.Fields {
 			if field.CreatedAt || field.UpdatedAt {
 				f.hasTimestamps = true
@@ -180,7 +184,7 @@ func (f *fileEmit) resolve(t Table, r Relation) (relEmit, error) {
 		ParentPKField: t.PK().Name,
 	}
 	f.addTypeDeps(r.TypeDeps)
-	if r.JoinScan != nil && r.IsPointer {
+	if r.JoinScan != nil {
 		// The scan temporaries declare each joined field's type.
 		for _, jf := range r.JoinScan.Fields {
 			f.addTypeDeps(jf.TypePkgs)
@@ -400,12 +404,12 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 	b.WriteString("\tcols, _ := rows.Columns()\n")
 	fmt.Fprintf(b, "\tvar v %s\n", n.Type)
 	for _, r := range rels {
-		if r.JoinScan == nil || !r.IsPointer {
+		if r.JoinScan == nil {
 			continue
 		}
 		// Every joined column scans through a pointer, so a LEFT JOIN that
-		// matched no row (all NULLs) still scans; the primary key temporary
-		// doubles as the row-present signal.
+		// matched no row and a nullable joined column both still scan; the
+		// primary key temporary doubles as the row-present signal.
 		for _, jf := range r.JoinScan.Fields {
 			fmt.Fprintf(b, "\tvar joinScan%s%s %s\n", r.FieldName, jf.Name, pointerTo(jf.GoType))
 		}
@@ -423,17 +427,13 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 		}
 		for _, jf := range r.JoinScan.Fields {
 			fmt.Fprintf(b, "\t\tcase \"%s__%s\":\n", r.FieldName, jf.Column)
-			if r.IsPointer {
-				fmt.Fprintf(b, "\t\t\tdest[i] = &joinScan%s%s\n", r.FieldName, jf.Name)
-			} else {
-				fmt.Fprintf(b, "\t\t\tdest[i] = &v.%s.%s\n", r.FieldName, jf.Name)
-			}
+			fmt.Fprintf(b, "\t\t\tdest[i] = &joinScan%s%s\n", r.FieldName, jf.Name)
 		}
 	}
 	b.WriteString("\t\tdefault:\n\t\t\tdest[i] = new(any)\n\t\t}\n\t}\n")
 	b.WriteString("\terr := rows.Scan(dest...)\n")
 	for _, r := range rels {
-		if r.JoinScan == nil || !r.IsPointer {
+		if r.JoinScan == nil {
 			continue
 		}
 		fmt.Fprintf(b, "\tif joinScan%s%s != nil {\n", r.FieldName, r.JoinScan.PK.Name)
@@ -450,7 +450,11 @@ func (f *fileEmit) writeScan(b *strings.Builder, t Table, n tableNames, rels []r
 				b.WriteString("\t\t}\n")
 			}
 		}
-		fmt.Fprintf(b, "\t\tv.%s = &joined\n", r.FieldName)
+		if r.IsPointer {
+			fmt.Fprintf(b, "\t\tv.%s = &joined\n", r.FieldName)
+		} else {
+			fmt.Fprintf(b, "\t\tv.%s = joined\n", r.FieldName)
+		}
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("\treturn v, err\n}\n\n")
