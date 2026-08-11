@@ -6,9 +6,8 @@ import (
 )
 
 var (
-	NameExpr    = nameExpr
-	FindGoMod   = findGoMod
-	PackageName = packageName
+	NameExpr  = nameExpr
+	FindGoMod = findGoMod
 )
 
 func ParseFlags(args []string, stderr io.Writer) (Config, error) {

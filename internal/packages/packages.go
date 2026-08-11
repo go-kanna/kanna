@@ -148,3 +148,21 @@ func joinTags(tags []string) string {
 	}
 	return strings.Join(nonEmpty, " ")
 }
+
+// Importable reports why generated code could not import pkg, or nil when it
+// can. The check has to happen before writing, because the output is valid Go
+// either way: it is the import that a compiler rejects, long after the
+// generator has exited successfully.
+func Importable(pkg *Package) error {
+	// go/packages gives file patterns this synthetic path, which no other
+	// package can import.
+	if pkg.PkgPath == "command-line-arguments" {
+		return errors.New("-source must name a package, not individual files")
+	}
+
+	if pkg.Name == "main" {
+		return fmt.Errorf("-source names package main (%s), which the generated code cannot import", pkg.PkgPath)
+	}
+
+	return nil
+}
