@@ -5,8 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go/ast"
-	"go/parser"
 	"go/token"
 	"io"
 	"os"
@@ -98,7 +96,7 @@ func (c CLI) generate(cfg Config) int {
 	}
 
 	// Validate what can be checked before paying for the package load.
-	pkgName, err := packageName(cfg.Package, absDest)
+	pkgName, err := output.PackageName(cfg.Package, absDest, defaultOutputFile)
 	if err != nil {
 		fmt.Fprintln(c.Err, err)
 		return exit.Usage
@@ -123,7 +121,7 @@ func (c CLI) generate(cfg Config) int {
 	}
 	pkg := pkgs[0]
 
-	if err := importable(pkg); err != nil {
+	if err := packages.Importable(pkg); err != nil {
 		fmt.Fprintln(c.Err, err)
 		return exit.Usage
 	}
@@ -137,7 +135,7 @@ func (c CLI) generate(cfg Config) int {
 	// Generating into the source package would make the file import its own
 	// package and break compilation. Compare with symlinks resolved so an
 	// aliased path (e.g., /tmp vs /private/tmp on macOS) cannot bypass the check.
-	if pkg.Dir != "" && resolvePath(absDest) == resolvePath(pkg.Dir) {
+	if pkg.Dir != "" && output.ResolvePath(absDest) == output.ResolvePath(pkg.Dir) {
 		fmt.Fprintln(c.Err, "-destination must be a different package from -source")
 		return exit.Usage
 	}
@@ -158,7 +156,7 @@ func (c CLI) generate(cfg Config) int {
 
 	// The destination is meant to hold hand-written files too, so what is
 	// already there decides whether this output can compile.
-	if ds := clashes(declaredNames(absDest, pkgName), plans); len(ds) > 0 {
+	if ds := clashes(output.DeclaredNames(absDest, pkgName, defaultOutputFile), plans); len(ds) > 0 {
 		c.printDiags(ds)
 		return exit.Error
 	}
@@ -200,26 +198,6 @@ func (c CLI) generate(cfg Config) int {
 	return exit.OK
 }
 
-// importable reports why the generated code could not import pkg, or nil when it
-// can.
-//
-// The check has to happen here rather than at the point of writing, because the
-// output is valid Go either way: it is the import that a compiler rejects, long
-// after this process has exited successfully.
-func importable(pkg *packages.Package) error {
-	// go/packages gives file patterns this synthetic path, which no other
-	// package can import.
-	if pkg.PkgPath == "command-line-arguments" {
-		return errors.New("-source must name a package, not individual files")
-	}
-
-	if pkg.Name == "main" {
-		return fmt.Errorf("-source names package main (%s), which the generated code cannot import", pkg.PkgPath)
-	}
-
-	return nil
-}
-
 // applyExcludes drops the named targets, warning about any name that matched
 // nothing. A typo would otherwise silently leave the fixture in place, which is
 // the opposite of what the author asked for.
@@ -258,120 +236,6 @@ func (c CLI) printDiags(ds []diag.Diag) {
 		return
 	}
 	fmt.Fprintln(c.Err, diag.Format(ds))
-}
-
-// packageName resolves the package name of the generated file. destDir must
-// be absolute, so that a relative -destination such as "." still yields a
-// directory name.
-func packageName(override, destDir string) (string, error) {
-	declared := declaredPackage(destDir)
-
-	// Every file in a directory has to agree on the package clause, so the
-	// override cannot win over what is already there: the result would be a file
-	// nothing can compile alongside its neighbours.
-	if override != "" && declared != "" && override != declared {
-		return "", fmt.Errorf("-package %s conflicts with package %s, which %s already declares",
-			override, declared, destDir)
-	}
-
-	if override != "" {
-		return override, nil
-	}
-	if declared != "" {
-		return declared, nil
-	}
-
-	return filepath.Base(destDir), nil
-}
-
-// declaredPackage returns the package the Go files in dir already declare;
-// every file in a directory has to agree on it, so the generated file has no
-// choice either. The generated file itself is skipped so a name written by a
-// previous run cannot pin the next one, and test files are skipped because
-// they may sit in an external _test package. An unreadable directory yields an
-// empty name.
-func declaredPackage(dir string) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-
-	fset := token.NewFileSet()
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || name == defaultOutputFile {
-			continue
-		}
-
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-
-		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.PackageClauseOnly)
-		if err != nil {
-			continue
-		}
-
-		return f.Name.Name
-	}
-
-	return ""
-}
-
-// declaredNames returns the top-level identifiers the destination package
-// already declares, each mapped to the position it is declared at.
-//
-// Only files declaring pkgName are read: an external test package shares the
-// directory but not the namespace, so nothing it declares can clash. The
-// generated file is skipped as well, since it is what gets replaced.
-func declaredNames(dir, pkgName string) map[string]token.Position {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-
-	fset := token.NewFileSet()
-	names := make(map[string]token.Position)
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || name == defaultOutputFile || !strings.HasSuffix(name, ".go") {
-			continue
-		}
-
-		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
-		if err != nil || f.Name.Name != pkgName {
-			continue
-		}
-
-		for _, decl := range f.Decls {
-			collectNames(fset, decl, names)
-		}
-	}
-
-	return names
-}
-
-func collectNames(fset *token.FileSet, decl ast.Decl, into map[string]token.Position) {
-	switch d := decl.(type) {
-	case *ast.FuncDecl:
-		// A method belongs to its receiver's namespace, not the package's.
-		if d.Recv == nil {
-			into[d.Name.Name] = fset.Position(d.Name.Pos())
-		}
-	case *ast.GenDecl:
-		for _, spec := range d.Specs {
-			switch s := spec.(type) {
-			case *ast.TypeSpec:
-				into[s.Name.Name] = fset.Position(s.Name.Pos())
-			case *ast.ValueSpec:
-				for _, id := range s.Names {
-					into[id.Name] = fset.Position(id.Pos())
-				}
-			}
-		}
-	}
 }
 
 // clashes reports every identifier the generated file would redeclare.
@@ -474,17 +338,6 @@ func provided(mods []string, importPath string) bool {
 	}
 
 	return false
-}
-
-// resolvePath resolves symlinks best-effort, falling back to the input when
-// the path cannot be resolved (e.g., it does not exist yet).
-func resolvePath(path string) string {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return path
-	}
-
-	return resolved
 }
 
 // findGoMod walks up from dir to locate the enclosing go.mod file.

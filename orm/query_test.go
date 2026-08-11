@@ -1504,3 +1504,115 @@ func TestRewriteKeepsPlaceholdersInsideNestedAndLineComments(t *testing.T) {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }
+
+// --- Caller-set primary keys ---
+
+func TestCreateWithCallerSetPKMySQL(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	tq.LastID = 9
+	q := newTestQuery(tq)
+
+	u := testUser{ID: 7, Name: "alice"}
+	if err := q.Create(t.Context(), &u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := "INSERT INTO `users` (`id`, `name`) VALUES (?, ?)"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+	if u.ID != 7 {
+		t.Errorf("ID = %d, want the caller's 7 untouched", u.ID)
+	}
+}
+
+func TestCreateWithCallerSetPKPostgreSQL(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	u := testUser{ID: 7, Name: "alice"}
+	if err := q.Create(t.Context(), &u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := `INSERT INTO "users" ("id", "name") VALUES ($1, $2)`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q (no RETURNING for a caller-set key)", got.SQL, want)
+	}
+}
+
+func TestCreateAllWithCallerSetPKs(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	items := []*testUser{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
+	if err := q.CreateAll(t.Context(), items); err != nil {
+		t.Fatalf("CreateAll: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := `INSERT INTO "users" ("id", "name") VALUES ($1, $2), ($3, $4)`
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want %q", got.SQL, want)
+	}
+}
+
+func TestCreateAllRejectsMixedPKs(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.PostgreSQL)
+	q := newTestQuery(tq)
+
+	items := []*testUser{{ID: 1, Name: "a"}, {Name: "b"}}
+	err := q.CreateAll(t.Context(), items)
+	if err == nil || !strings.Contains(err.Error(), "all set or all zero") {
+		t.Fatalf("err = %v, want mixed-key error", err)
+	}
+	if len(tq.Queries) != 0 {
+		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}
+
+type testKeyID int64
+
+func TestCreateTreatsZeroNamedKeyAsUnset(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	tq.LastID = 5
+
+	var captured testKeyID
+	q := orm.NewQuery[testUser](
+		tq, "things", []string{"id", "name"}, "id",
+		func(*sql.Rows) (testUser, error) { return testUser{}, nil },
+		func(u *testUser, includesPK bool) ([]string, []any) {
+			if includesPK {
+				return []string{"id", "name"}, []any{testKeyID(u.ID), u.Name}
+			}
+			return []string{"name"}, []any{u.Name}
+		},
+		func(u *testUser, id int64) { captured = testKeyID(id); u.ID = int(id) },
+	)
+
+	u := testUser{Name: "alice"}
+	if err := q.Create(t.Context(), &u); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got := tq.LastQuery()
+	want := "INSERT INTO `things` (`name`) VALUES (?)"
+	if got.SQL != want {
+		t.Errorf("SQL = %q, want the key column excluded: %q", got.SQL, want)
+	}
+	if captured != 5 {
+		t.Errorf("setPK got %d, want the generated 5", captured)
+	}
+}

@@ -2,7 +2,7 @@ BUILD_DIR = bin
 
 # Every generator has a command under cmd/kanna-<name> and one example module
 # under examples/<name>, which the `build` and `examples` targets walk.
-GENERATORS = di fixture i18n mapper
+GENERATORS = di fixture i18n mapper orm
 
 .PHONY: test
 test:

@@ -81,6 +81,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Start databases
+        # The orm example runs against real databases when they are up, and
+        # prints a hint and exits cleanly when they are not. Starting them
+        # here makes CI exercise the full path.
+        run: docker compose -f orm/integration/compose.yaml up -d --wait
+
       - name: Regenerate examples
         run: make examples
 

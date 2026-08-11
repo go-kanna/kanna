@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Resolve interprets path against dir. An absolute path is already anchored,
@@ -91,4 +92,132 @@ func isGenerated(src []byte) bool {
 		return false
 	}
 	return ast.IsGenerated(f)
+}
+
+// PackageName resolves the package name of a generated file placed in
+// destDir, whose own previous output is named generatedFile. destDir must be
+// absolute, so that a relative destination such as "." still yields a
+// directory name.
+//
+// Every file in a directory has to agree on the package clause, so an
+// override cannot win over what is already there: the result would be a file
+// nothing can compile alongside its neighbours.
+func PackageName(override, destDir, generatedFile string) (string, error) {
+	declared := declaredPackage(destDir, generatedFile)
+
+	if override != "" && declared != "" && override != declared {
+		return "", fmt.Errorf("-package %s conflicts with package %s, which %s already declares",
+			override, declared, destDir)
+	}
+
+	if override != "" {
+		return override, nil
+	}
+	if declared != "" {
+		return declared, nil
+	}
+
+	return filepath.Base(destDir), nil
+}
+
+// declaredPackage returns the package the Go files in dir already declare.
+// The generated file itself is skipped so a name written by a previous run
+// cannot pin the next one, and test files are skipped because they may sit in
+// an external _test package. An unreadable directory yields an empty name.
+func declaredPackage(dir, generatedFile string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	fset := token.NewFileSet()
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == generatedFile {
+			continue
+		}
+
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+
+		return f.Name.Name
+	}
+
+	return ""
+}
+
+// DeclaredNames returns the top-level identifiers the destination package
+// already declares, each mapped to the position it is declared at, so a
+// generator can refuse to redeclare one.
+//
+// Only files declaring pkgName are read: an external test package shares the
+// directory but not the namespace, so nothing it declares can clash. The
+// generated file itself is skipped as well, since it is what gets replaced.
+func DeclaredNames(dir, pkgName, generatedFile string) map[string]token.Position {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	fset := token.NewFileSet()
+	names := make(map[string]token.Position)
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == generatedFile || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil || f.Name.Name != pkgName {
+			continue
+		}
+
+		for _, decl := range f.Decls {
+			collectNames(fset, decl, names)
+		}
+	}
+
+	return names
+}
+
+func collectNames(fset *token.FileSet, decl ast.Decl, into map[string]token.Position) {
+	switch d := decl.(type) {
+	case *ast.FuncDecl:
+		// A method belongs to its receiver's namespace, not the package's.
+		if d.Recv == nil {
+			into[d.Name.Name] = fset.Position(d.Name.Pos())
+		}
+	case *ast.GenDecl:
+		for _, spec := range d.Specs {
+			switch s := spec.(type) {
+			case *ast.TypeSpec:
+				into[s.Name.Name] = fset.Position(s.Name.Pos())
+			case *ast.ValueSpec:
+				for _, id := range s.Names {
+					into[id.Name] = fset.Position(id.Pos())
+				}
+			}
+		}
+	}
+}
+
+// ResolvePath resolves symlinks best-effort, falling back to the input when
+// the path cannot be resolved (e.g., it does not exist yet). Comparing
+// resolved paths keeps an aliased destination (such as /tmp vs /private/tmp
+// on macOS) from bypassing a same-directory check.
+func ResolvePath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+
+	return resolved
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -386,15 +387,17 @@ func (q *Query[T]) Exists(ctx context.Context) (bool, error) {
 	return exists, rows.Err() //nolint:wrapcheck // pass through
 }
 
-// Create inserts a new row. If setPK is set, the primary key is populated
-// via RETURNING (PostgreSQL) or LastInsertId (MySQL).
+// Create inserts a new row. A zero primary key asks the database to generate
+// one, populated back via RETURNING (PostgreSQL) or LastInsertId (MySQL); a
+// caller-set key is inserted as given and nothing is read back.
 func (q *Query[T]) Create(ctx context.Context, t *T) error {
 	if q.err != nil {
 		return q.err
 	}
 	q.applyTimestamps(ctx, t, true)
 
-	includesPK := q.setPK == nil
+	genPK := q.setPK != nil && !q.pkSet(t)
+	includesPK := !genPK
 	columns, values := q.colValPairs(t, includesPK)
 	if len(columns) == 0 {
 		// A default-only row has no portable INSERT: PostgreSQL wants
@@ -407,7 +410,7 @@ func (q *Query[T]) Create(ctx context.Context, t *T) error {
 	query, values = q.rewrite(query, values)
 
 	d := q.db.dialect()
-	if d.UseReturning() && q.setPK != nil {
+	if d.UseReturning() && genPK {
 		query += d.ReturningClause(q.pk)
 		rows, err := q.db.QueryContext(ctx, query, values...)
 		if err != nil {
@@ -430,7 +433,7 @@ func (q *Query[T]) Create(ctx context.Context, t *T) error {
 		return err //nolint:wrapcheck // pass through
 	}
 
-	if q.setPK != nil {
+	if genPK {
 		id, err := result.LastInsertId()
 		if err != nil {
 			return err //nolint:wrapcheck // pass through
@@ -440,8 +443,21 @@ func (q *Query[T]) Create(ctx context.Context, t *T) error {
 	return nil
 }
 
-// CreateAll inserts multiple rows in a single INSERT statement.
-// If setPK is set, primary keys are populated for each row.
+// pkSet reports whether t carries a non-zero primary key value.
+func (q *Query[T]) pkSet(t *T) bool {
+	columns, values := q.colValPairs(t, true)
+	for i, col := range columns {
+		if col == q.pk {
+			return !zeroPK(values[i])
+		}
+	}
+	return false
+}
+
+// CreateAll inserts multiple rows in a single INSERT statement. All-zero
+// primary keys ask the database to generate them, populated back per row; a
+// batch of caller-set keys is inserted as given. Mixing the two would make
+// the write-back ambiguous, so it is rejected.
 func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 	if q.err != nil {
 		return q.err
@@ -454,7 +470,24 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 		q.applyTimestamps(ctx, item, true)
 	}
 
-	includesPK := q.setPK == nil
+	genPK := q.setPK != nil
+	if genPK {
+		set := 0
+		for _, item := range items {
+			if q.pkSet(item) {
+				set++
+			}
+		}
+		switch set {
+		case 0:
+			// every key is generated
+		case len(items):
+			genPK = false
+		default:
+			return errors.New("orm: CreateAll requires primary keys to be all set or all zero")
+		}
+	}
+	includesPK := !genPK
 	columns, _ := q.colValPairs(items[0], includesPK)
 	if len(columns) == 0 {
 		return errors.New("orm: CreateAll requires at least one column")
@@ -470,7 +503,7 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 	query, allValues = q.rewrite(query, allValues)
 
 	d := q.db.dialect()
-	if d.UseReturning() && q.setPK != nil {
+	if d.UseReturning() && genPK {
 		query += d.ReturningClause(q.pk)
 		rows, err := q.db.QueryContext(ctx, query, allValues...)
 		if err != nil {
@@ -504,7 +537,7 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 		return err //nolint:wrapcheck // pass through
 	}
 
-	if q.setPK != nil {
+	if genPK {
 		firstID, err := result.LastInsertId()
 		if err != nil {
 			return err //nolint:wrapcheck // pass through
@@ -519,11 +552,17 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 	return nil
 }
 
-// Upsert inserts a row or updates it on primary key conflict.
+// Upsert inserts a row or updates it on key conflict.
 // All non-PK columns (except createdAt) are updated on conflict.
 // The primary key must be set on t before calling Upsert — a zero key is
 // rejected, because unlike Create nothing is read back into t on MySQL, and a
 // zero auto-increment key would quietly insert a fresh row on every call.
+//
+// The conflict target is dialect-specific, because MySQL offers no way to name
+// one: PostgreSQL's ON CONFLICT fires on the primary key alone, while MySQL's
+// ON DUPLICATE KEY UPDATE fires on any unique index. A row that collides on a
+// secondary unique key is therefore updated by MySQL, where PostgreSQL reports
+// a constraint error.
 func (q *Query[T]) Upsert(ctx context.Context, t *T) error {
 	if q.err != nil {
 		return q.err
@@ -925,8 +964,11 @@ func (q *Query[T]) rewrite(query string, args []any) (string, []any) {
 	return rewritePlaceholders(q.db.dialect(), query), args
 }
 
-// zeroPK reports whether a primary key value is absent. The type switch covers
-// the key types generated code emits; reflection stays out of the runtime.
+// zeroPK reports whether a primary key value is absent. The type switch
+// covers the predeclared key types without allocation; a named key type
+// (model.Key) falls through to reflection. That is the one reflective moment
+// in the runtime, confined to this write-time guard — scanning and column
+// mapping stay resolved at generation time.
 func zeroPK(v any) bool {
 	switch x := v.(type) {
 	case nil:
@@ -954,7 +996,8 @@ func zeroPK(v any) bool {
 	case string:
 		return x == ""
 	default:
-		return false
+		rv := reflect.ValueOf(v)
+		return rv.IsValid() && rv.IsZero()
 	}
 }
 

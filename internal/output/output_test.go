@@ -169,3 +169,101 @@ func TestCheckUpToDate(t *testing.T) {
 		}
 	})
 }
+
+func TestPackageName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		override string
+		dir      string
+		// files, when non-nil, are written into the destination directory;
+		// a nil map leaves the directory missing.
+		files   map[string]string
+		want    string
+		wantErr bool
+	}{
+		{
+			// Overriding to the name already declared is redundant but harmless.
+			name:     "override agreeing with the declared package",
+			override: "fixture",
+			dir:      "fixture",
+			files:    map[string]string{"fixture.go": "package fixture\n"},
+			want:     "fixture",
+		},
+		{
+			// Every file in a directory has to agree on the package clause, so
+			// this cannot be honored: it would produce a file that does not
+			// compile next to the one already there.
+			name:     "override conflicting with the declared package",
+			override: "fx",
+			dir:      "fixture",
+			files:    map[string]string{"fixture.go": "package fixture\n"},
+			wantErr:  true,
+		},
+		{
+			// With nothing declared yet there is nothing to conflict with.
+			name:     "override in an empty directory",
+			override: "fx",
+			dir:      "fixture",
+			want:     "fx",
+		},
+		{
+			name:  "declared package wins over the directory name",
+			dir:   "fixtures",
+			files: map[string]string{"employee_fixture.go": "package fixture\n"},
+			want:  "fixture",
+		},
+		{
+			name:  "a previously generated file does not pin the name",
+			dir:   "fixture",
+			files: map[string]string{"fixture_gen.go": "package stale\n"},
+			want:  "fixture",
+		},
+		{
+			name:  "external test files are ignored",
+			dir:   "fixture",
+			files: map[string]string{"fixture_test.go": "package fixture_test\n"},
+			want:  "fixture",
+		},
+		{
+			name: "a missing directory falls back to its name",
+			dir:  "fixture",
+			want: "fixture",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dest := filepath.Join(t.TempDir(), tt.dir)
+
+			if tt.files != nil {
+				if err := os.MkdirAll(dest, 0o750); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+
+				for name, body := range tt.files {
+					if err := os.WriteFile(filepath.Join(dest, name), []byte(body), 0o600); err != nil {
+						t.Fatalf("write %s: %v", name, err)
+					}
+				}
+			}
+
+			got, err := output.PackageName(tt.override, dest, "fixture_gen.go")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("PackageName(%q, %q) = %q, want an error", tt.override, dest, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PackageName(%q, %q) error = %v", tt.override, dest, err)
+			}
+			if got != tt.want {
+				t.Errorf("PackageName(%q, %q) = %q, want %q", tt.override, dest, got, tt.want)
+			}
+		})
+	}
+}
