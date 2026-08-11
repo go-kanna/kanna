@@ -36,17 +36,29 @@ var PostgreSQL Dialect = postgresDialect{}
 
 type mysqlDialect struct{}
 
-func (mysqlDialect) Placeholder(_ int) string        { return "?" }
-func (mysqlDialect) QuoteIdent(name string) string   { return "`" + name + "`" }
+func (mysqlDialect) Placeholder(_ int) string { return "?" }
+
+// QuoteIdent doubles embedded backticks so a quote character inside an
+// identifier cannot terminate the quoting.
+func (mysqlDialect) QuoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
 func (mysqlDialect) UseReturning() bool              { return false }
 func (mysqlDialect) ReturningClause(_ string) string { return "" }
 
 type postgresDialect struct{}
 
-func (postgresDialect) Placeholder(index int) string     { return fmt.Sprintf("$%d", index) }
-func (postgresDialect) QuoteIdent(name string) string    { return `"` + name + `"` }
-func (postgresDialect) UseReturning() bool               { return true }
-func (postgresDialect) ReturningClause(pk string) string { return ` RETURNING "` + pk + `"` }
+func (postgresDialect) Placeholder(index int) string { return fmt.Sprintf("$%d", index) }
+
+// QuoteIdent doubles embedded double quotes so a quote character inside an
+// identifier cannot terminate the quoting.
+func (postgresDialect) QuoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+func (postgresDialect) UseReturning() bool { return true }
+func (d postgresDialect) ReturningClause(pk string) string {
+	return " RETURNING " + d.QuoteIdent(pk)
+}
 
 // rewritePlaceholders converts ? placeholders to the dialect's form ($1, $2, …
 // for PostgreSQL; MySQL keeps ? and returns early). Question marks inside

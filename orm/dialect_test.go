@@ -87,3 +87,22 @@ func TestPostgreSQLQuoteIdent(t *testing.T) {
 		t.Errorf("QuoteIdent = %q, want %q", got, want)
 	}
 }
+
+func TestQuoteIdentEscapesEmbeddedQuotes(t *testing.T) {
+	t.Parallel()
+
+	if got, want := orm.MySQL.QuoteIdent("weird`name"), "`weird``name`"; got != want {
+		t.Errorf("MySQL.QuoteIdent = %s, want %s", got, want)
+	}
+	if got, want := orm.PostgreSQL.QuoteIdent(`weird"name`), `"weird""name"`; got != want {
+		t.Errorf("PostgreSQL.QuoteIdent = %s, want %s", got, want)
+	}
+}
+
+func TestReturningClauseEscapesEmbeddedQuotes(t *testing.T) {
+	t.Parallel()
+
+	if got, want := orm.PostgreSQL.ReturningClause(`weird"pk`), ` RETURNING "weird""pk"`; got != want {
+		t.Errorf("ReturningClause = %s, want %s", got, want)
+	}
+}
