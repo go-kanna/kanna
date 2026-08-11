@@ -430,3 +430,109 @@ type Person struct{ ID int }
 		})
 	}
 }
+
+func TestTablesRejectsUnexportedStruct(t *testing.T) {
+	t.Parallel()
+
+	wantError(t, `package model
+
+//kanna:table
+type user struct{ ID int }
+`, "user is unexported")
+}
+
+func TestTablesRejectsExtraDirectiveTokens(t *testing.T) {
+	t.Parallel()
+
+	wantError(t, `package model
+
+//kanna:table name=my people
+type Person struct{ ID int }
+`, "takes no argument or name=<table>")
+}
+
+func TestTablesResolvesAliasedRelationTarget(t *testing.T) {
+	t.Parallel()
+
+	tables := mustPlan(t, `package model
+
+//kanna:table
+type User struct {
+	ID    int
+	Posts []P `+"`"+`orm:"has_many,foreign_key:user_id"`+"`"+`
+}
+
+type P = Post
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+}
+`)
+	if got := tables[0].Relations[0].TargetType; got != "Post" {
+		t.Errorf("TargetType = %s, want Post (through the alias)", got)
+	}
+}
+
+func TestTablesTimestampOptOut(t *testing.T) {
+	t.Parallel()
+
+	tables := mustPlan(t, `package model
+
+//kanna:table
+type Event struct {
+	ID        int
+	CreatedAt string `+"`"+`orm:"created_at_str"`+"`"+`
+}
+`)
+	f := tables[0].Fields[1]
+	if f.CreatedAt || f.Column != "created_at_str" {
+		t.Errorf("field = %+v, want a plain column", f)
+	}
+}
+
+func TestTablesUntaggedShapes(t *testing.T) {
+	t.Parallel()
+
+	tables := mustPlan(t, `package model
+
+import (
+	"database/sql"
+	"time"
+)
+
+//kanna:table
+type Entry struct {
+	ID     int
+	Times  []time.Time    // struct slice, but a column type: kept
+	Nick   sql.NullString // sql.Scanner: kept
+	Stamps []Entry        // same-package struct slice: relation shape, dropped
+}
+`)
+	cols := make([]string, 0, len(tables[0].Fields))
+	for _, f := range tables[0].Fields {
+		cols = append(cols, f.Column)
+	}
+	if got, want := strings.Join(cols, ","), "id,times,nick"; got != want {
+		t.Errorf("columns = %s, want %s", got, want)
+	}
+}
+
+func TestTablesUntaggedCrossPackagePointerIsNotAColumn(t *testing.T) {
+	t.Parallel()
+
+	tables := mustPlan(t, `package model
+
+import "go/token"
+
+//kanna:table
+type Entry struct {
+	ID  int
+	Ref *token.FileSet // struct pointer without a tag: relation shape, dropped
+}
+`)
+	if len(tables[0].Fields) != 1 {
+		t.Errorf("fields = %+v, want only id", tables[0].Fields)
+	}
+}

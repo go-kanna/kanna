@@ -4,6 +4,7 @@ import (
 	"go/token"
 	"go/types"
 	"reflect"
+	"strings"
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/directive"
@@ -130,6 +131,10 @@ func warnUntaggedUse(s ir.Struct) []diag.Diag {
 func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 	var diags []diag.Diag
 
+	if !token.IsExported(s.Name) {
+		return nil, []diag.Diag{diag.Errorf(s.Pos,
+			"%s is unexported; the generated package cannot reference it", s.Name)}
+	}
 	if s.Named.TypeParams().Len() > 0 {
 		return nil, []diag.Diag{diag.Errorf(s.Pos, "%s is generic; kanna-orm cannot generate queries for it", s.Name)}
 	}
@@ -157,7 +162,8 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 			continue
 		}
 
-		col, rel, errs := parseTag(f.Tag.Get(tagKey))
+		raw, hasTag := f.Tag.Lookup(tagKey)
+		col, rel, errs := parseTag(raw)
 		for _, e := range errs {
 			diags = append(diags, diag.Errorf(f.Pos, "%s.%s: %s", s.Name, f.Name, e))
 		}
@@ -174,7 +180,7 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 			continue
 		}
 
-		field, ok := buildField(f, col, srcPkg, qualify)
+		field, ok := buildField(f, col, hasTag, qualify)
 		if ok {
 			table.Fields = append(table.Fields, field)
 		}
@@ -192,47 +198,31 @@ func parseTableArgs(args string, pos token.Position) (string, []diag.Diag) {
 	if args == "" {
 		return "", nil
 	}
-	k, v, found := cutKeyValue(args)
-	if !found || k != "name" || v == "" {
+	tokens := strings.Fields(args)
+	k, v, found := strings.Cut(tokens[0], "=")
+	if len(tokens) != 1 || !found || k != "name" || v == "" {
 		return "", []diag.Diag{diag.Errorf(pos,
 			"//kanna:table takes no argument or name=<table>, got %q", args)}
 	}
 	return v, nil
 }
 
-func cutKeyValue(s string) (string, string, bool) {
-	for i := range len(s) {
-		if s[i] == '=' {
-			return s[:i], s[i+1:], true
-		}
-	}
-	return s, "", false
-}
-
 // buildField turns a column-tagged (or untagged) field into a Field. Untagged
-// fields whose type reads as a relation — a slice of structs, or a pointer to
-// a struct in the same package — are not columns and are skipped, the same way
-// a hand-written query would not select them.
-func buildField(f ir.Field, col *columnTag, srcPkg *types.Package, qualify types.Qualifier) (Field, bool) {
+// fields whose type reads as a relation — a slice of structs or a pointer to
+// one — are not columns and are skipped, the same way a hand-written query
+// would not select them; struct types that still read as columns (time.Time,
+// anything a driver can hand a value through Scan) stay.
+//
+// Writing any orm tag turns the name-based timestamp inference off: a tag is
+// an explicit statement of what the field is, so a field that wants both a
+// custom column name and timestamp behavior says so with created_at or
+// updated_at.
+func buildField(f ir.Field, col *columnTag, hasTag bool, qualify types.Qualifier) (Field, bool) {
 	if col.Skip {
 		return Field{}, false
 	}
-	if col.Column == "" && !col.PrimaryKey && !col.CreatedAt && !col.UpdatedAt {
-		if elem, isSlice := sliceElem(f.Type); isSlice {
-			if elem, isPtr := pointerElem(elem); isPtr {
-				if _, ok := structNamed(elem); ok {
-					return Field{}, false
-				}
-			}
-			if _, ok := structNamed(elem); ok {
-				return Field{}, false
-			}
-		}
-		if elem, isPtr := pointerElem(f.Type); isPtr {
-			if named, ok := structNamed(elem); ok && named.Obj().Pkg() == srcPkg {
-				return Field{}, false
-			}
-		}
+	if !hasTag && relationShape(f.Type) {
+		return Field{}, false
 	}
 
 	column := col.Column
@@ -245,10 +235,49 @@ func buildField(f ir.Field, col *columnTag, srcPkg *types.Package, qualify types
 		Column:     column,
 		GoType:     types.TypeString(f.Type, qualify),
 		PrimaryKey: col.PrimaryKey,
-		CreatedAt:  col.CreatedAt || f.Name == "CreatedAt",
-		UpdatedAt:  col.UpdatedAt || f.Name == "UpdatedAt",
+		CreatedAt:  col.CreatedAt || (!hasTag && f.Name == "CreatedAt"),
+		UpdatedAt:  col.UpdatedAt || (!hasTag && f.Name == "UpdatedAt"),
 		Pos:        f.Pos,
 	}, true
+}
+
+// relationShape reports whether an untagged field's type looks like a
+// relation rather than a column: a slice of structs or a pointer to one,
+// unless the struct itself reads as a column.
+func relationShape(t types.Type) bool {
+	core := t
+	if elem, isSlice := sliceElem(core); isSlice {
+		core = elem
+	} else if elem, isPtr := pointerElem(core); isPtr {
+		core = elem
+	} else {
+		return false
+	}
+	if elem, isPtr := pointerElem(core); isPtr {
+		core = elem
+	}
+	named, ok := structNamed(core)
+	return ok && !columnLike(named)
+}
+
+// columnLike reports whether a struct-kind named type still reads as a
+// column: time.Time, or anything carrying a Scan method for the driver to
+// hand a value through.
+func columnLike(named *types.Named) bool {
+	if obj := named.Obj(); obj.Name() == "Time" && obj.Pkg() != nil && obj.Pkg().Path() == "time" {
+		return true
+	}
+	ms := types.NewMethodSet(types.NewPointer(named))
+	for i := range ms.Len() {
+		sig, ok := ms.At(i).Obj().Type().(*types.Signature)
+		if !ok || ms.At(i).Obj().Name() != "Scan" {
+			continue
+		}
+		if sig.Params().Len() == 1 && sig.Results().Len() == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func buildRelation(s ir.Struct, f ir.Field, rel *relationTag, srcPkg *types.Package) (*Relation, []diag.Diag) {
@@ -568,7 +597,7 @@ func pointerElem(t types.Type) (types.Type, bool) {
 }
 
 func structNamed(t types.Type) (*types.Named, bool) {
-	named, ok := t.(*types.Named)
+	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return nil, false
 	}
