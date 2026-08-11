@@ -36,6 +36,7 @@ type Field struct {
 	Name       string // Go field name
 	Column     string
 	GoType     string // rendered relative to the source package, e.g. "time.Time"
+	IntKind    bool   // underlying type is an integer, however it is named
 	PrimaryKey bool
 	CreatedAt  bool
 	UpdatedAt  bool
@@ -57,7 +58,7 @@ type Relation struct {
 
 	// Resolved by Tables once every table is known.
 	ForeignKeyField string    // Go field owning the foreign key column
-	FKIsPointer     bool      // belongs_to only: that field is a pointer
+	FKIsPointer     bool      // the foreign key field is a pointer
 	KeyType         string    // preloader map key type
 	TargetTableName string    // target's table name
 	TargetPKColumn  string    // target's primary key column
@@ -230,10 +231,13 @@ func buildField(f ir.Field, col *columnTag, hasTag bool, qualify types.Qualifier
 		column = camelToSnake(f.Name)
 	}
 
+	basic, isBasic := f.Type.Underlying().(*types.Basic)
+
 	return Field{
 		Name:       f.Name,
 		Column:     column,
 		GoType:     types.TypeString(f.Type, qualify),
+		IntKind:    isBasic && basic.Info()&types.IsInteger != 0,
 		PrimaryKey: col.PrimaryKey,
 		CreatedAt:  col.CreatedAt || (!hasTag && f.Name == "CreatedAt"),
 		UpdatedAt:  col.UpdatedAt || (!hasTag && f.Name == "UpdatedAt"),
@@ -477,7 +481,14 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 				"%s.%s: foreign_key %q is not a column of %s", t.Name, r.FieldName, r.ForeignKey, r.TargetType)}
 		}
 		r.ForeignKeyField = fk.Name
-		r.KeyType = t.PK().GoType
+		keyType, fkPtr := derefType(fk.GoType)
+		if keyType != t.PK().GoType {
+			return []diag.Diag{diag.Errorf(r.Pos,
+				"%s.%s: foreign_key %s.%s has type %s, but the %s primary key is %s",
+				t.Name, r.FieldName, r.TargetType, fk.Name, fk.GoType, t.Name, t.PK().GoType)}
+		}
+		r.FKIsPointer = fkPtr
+		r.KeyType = keyType
 	default: // many_to_many
 		r.KeyType = t.PK().GoType
 	}

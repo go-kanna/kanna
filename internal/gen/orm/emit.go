@@ -243,7 +243,7 @@ func timestampFields(t Table) (created, updated []Field) {
 func (f *fileEmit) writeFactory(b *strings.Builder, t Table, n tableNames, rels []relEmit, created, updated []Field) {
 	pk := t.PK()
 	setPK := "nil"
-	if isIntType(pk.GoType) {
+	if pk.IntKind {
 		setPK = n.SetPK
 	}
 
@@ -410,7 +410,7 @@ func writeColValReturn(b *strings.Builder, fields []Field) {
 
 func (f *fileEmit) writeSetPK(b *strings.Builder, t Table, n tableNames) {
 	pk := t.PK()
-	if !isIntType(pk.GoType) {
+	if !pk.IntKind {
 		return
 	}
 	fmt.Fprintf(b, "func %s(v *%s, id int64) {\n", n.SetPK, n.Type)
@@ -455,7 +455,13 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 		b.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
 		fmt.Fprintf(b, "\tbyFK := make(map[%s][]%s)\n", r.KeyType, r.TargetTypeQ)
 		b.WriteString("\tfor _, r := range related {\n")
-		fmt.Fprintf(b, "\t\tbyFK[r.%s] = append(byFK[r.%s], r)\n", r.ForeignKeyField, r.ForeignKeyField)
+		if r.FKIsPointer {
+			fmt.Fprintf(b, "\t\tif r.%s != nil {\n", r.ForeignKeyField)
+			fmt.Fprintf(b, "\t\t\tbyFK[*r.%s] = append(byFK[*r.%s], r)\n", r.ForeignKeyField, r.ForeignKeyField)
+			b.WriteString("\t\t}\n")
+		} else {
+			fmt.Fprintf(b, "\t\tbyFK[r.%s] = append(byFK[r.%s], r)\n", r.ForeignKeyField, r.ForeignKeyField)
+		}
 		b.WriteString("\t}\n")
 		b.WriteString("\tfor i := range results {\n")
 		fmt.Fprintf(b, "\t\tresults[i].%s = byFK[results[i].%s]\n", r.FieldName, r.ParentPKField)
@@ -469,12 +475,24 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 		if r.IsPointer {
 			fmt.Fprintf(b, "\tbyFK := make(map[%s]*%s)\n", r.KeyType, r.TargetTypeQ)
 			b.WriteString("\tfor i := range related {\n")
-			fmt.Fprintf(b, "\t\tbyFK[related[i].%s] = &related[i]\n", r.ForeignKeyField)
+			if r.FKIsPointer {
+				fmt.Fprintf(b, "\t\tif related[i].%s != nil {\n", r.ForeignKeyField)
+				fmt.Fprintf(b, "\t\t\tbyFK[*related[i].%s] = &related[i]\n", r.ForeignKeyField)
+				b.WriteString("\t\t}\n")
+			} else {
+				fmt.Fprintf(b, "\t\tbyFK[related[i].%s] = &related[i]\n", r.ForeignKeyField)
+			}
 			b.WriteString("\t}\n")
 		} else {
 			fmt.Fprintf(b, "\tbyFK := make(map[%s]%s)\n", r.KeyType, r.TargetTypeQ)
 			b.WriteString("\tfor _, r := range related {\n")
-			fmt.Fprintf(b, "\t\tbyFK[r.%s] = r\n", r.ForeignKeyField)
+			if r.FKIsPointer {
+				fmt.Fprintf(b, "\t\tif r.%s != nil {\n", r.ForeignKeyField)
+				fmt.Fprintf(b, "\t\t\tbyFK[*r.%s] = r\n", r.ForeignKeyField)
+				b.WriteString("\t\t}\n")
+			} else {
+				fmt.Fprintf(b, "\t\tbyFK[r.%s] = r\n", r.ForeignKeyField)
+			}
 			b.WriteString("\t}\n")
 		}
 		b.WriteString("\tfor i := range results {\n")
@@ -562,16 +580,6 @@ func unexportedName(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToLower(runes[0])
 	return string(runes)
-}
-
-func isIntType(goType string) bool {
-	switch goType {
-	case "int", "int8", "int16", "int32", "int64",
-		"uint", "uint8", "uint16", "uint32", "uint64":
-		return true
-	default:
-		return false
-	}
 }
 
 // resolveAlias determines the import alias for an external package. When the
