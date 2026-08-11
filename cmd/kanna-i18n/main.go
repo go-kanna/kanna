@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	i18n "github.com/go-kanna/kanna/internal/gen/i18n"
+	"github.com/go-kanna/kanna/internal/gen/i18n"
 	"github.com/go-kanna/kanna/internal/version"
 )
 
