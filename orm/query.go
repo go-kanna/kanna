@@ -519,11 +519,17 @@ func (q *Query[T]) CreateAll(ctx context.Context, items []*T) error {
 	return nil
 }
 
-// Upsert inserts a row or updates it on primary key conflict.
+// Upsert inserts a row or updates it on key conflict.
 // All non-PK columns (except createdAt) are updated on conflict.
 // The primary key must be set on t before calling Upsert — a zero key is
 // rejected, because unlike Create nothing is read back into t on MySQL, and a
 // zero auto-increment key would quietly insert a fresh row on every call.
+//
+// The conflict target is dialect-specific, because MySQL offers no way to name
+// one: PostgreSQL's ON CONFLICT fires on the primary key alone, while MySQL's
+// ON DUPLICATE KEY UPDATE fires on any unique index. A row that collides on a
+// secondary unique key is therefore updated by MySQL, where PostgreSQL reports
+// a constraint error.
 func (q *Query[T]) Upsert(ctx context.Context, t *T) error {
 	if q.err != nil {
 		return q.err
