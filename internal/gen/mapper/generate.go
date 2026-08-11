@@ -22,7 +22,7 @@ func generate(cfg Config, env Env) error {
 	if err != nil {
 		return err
 	}
-	outDir, outFile := splitOutput(cfg.Output, env.GoFile)
+	outDir, outFile := cfg.Output, defaultOutputFile
 
 	// Resolving a selector needs each imported package's name, not its types.
 	names, err := packages.LoadNames(scope.importPaths(), packages.Config{Dir: env.Dir})
@@ -116,24 +116,9 @@ func generate(cfg Config, env Env) error {
 	return output.Write(outPath, code)
 }
 
-// defaultOutputFile names the generated file when $GOFILE is unset, which is
-// what happens outside go generate. Under go generate the name derives from the
-// file carrying the directive instead.
+// defaultOutputFile is the name given to the generated file inside the
+// destination directory.
 const defaultOutputFile = "mapper_gen.go"
-
-// splitOutput interprets -output: a path ending in .go names the file
-// directly; otherwise it is a directory and the file name derives from
-// $GOFILE.
-func splitOutput(output, goFile string) (dir, file string) {
-	if strings.HasSuffix(output, ".go") {
-		return filepath.Dir(output), filepath.Base(output)
-	}
-	name := defaultOutputFile
-	if goFile != "" {
-		name = strings.TrimSuffix(goFile, ".go") + "_gen.go"
-	}
-	return output, name
-}
 
 // loaded indexes the packages of the single bulk packages.Load call.
 type loaded struct {
@@ -249,7 +234,7 @@ func dirPattern(dir string) string {
 	return "./" + dir
 }
 
-// byPattern finds the loaded package for a -converter-pkg argument,
+// byPattern finds the loaded package for a -converters argument,
 // which is a directory path (starting with "." or absolute) or an import
 // path.
 func (l *loaded) byPattern(pattern, baseDir string) (*packages.Package, error) {

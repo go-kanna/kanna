@@ -98,9 +98,9 @@ func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 
 	var types, converterPkgs, ignores listFlag
 	fs.Var(&types, "types", "comma-separated SRC:DST type pairs; repeatable")
-	fs.Var(&converterPkgs, "converter-pkg", "package containing mapper.Register calls; repeatable")
-	fs.Var(&ignores, "ignore", "comma-separated destination fields to skip; repeatable")
-	output := fs.String("output", ".", "output directory, or a file path ending in .go")
+	fs.Var(&converterPkgs, "converters", "package containing mapper.Register calls; repeatable")
+	fs.Var(&ignores, "exclude", "comma-separated destination fields to exclude; repeatable")
+	output := fs.String("destination", ".", "output directory for the generated file")
 	direction := fs.String("direction", string(DirectionBoth), `which functions to generate: "both", "to", or "from"`)
 	pkgName := fs.String("package", "", "output package name (defaults to $GOPACKAGE)")
 	check := fs.Bool("check", false, "verify generated files are up to date instead of writing them")
@@ -169,7 +169,7 @@ func buildConfig(types, converterPkgs, ignores []string, output, direction, pkgN
 		return Config{}, fmt.Errorf("invalid -package %q", cfg.Package)
 	}
 	if cfg.Output == "" {
-		return Config{}, errors.New("-output must not be empty")
+		return Config{}, errors.New("-destination must not be empty")
 	}
 
 	return cfg, nil
@@ -270,9 +270,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  -types <SRC:DST>        type pairs to map, comma-separated; repeatable")
-	fmt.Fprintln(w, "  -converter-pkg <pkg>    package holding mapper.Register calls; repeatable")
-	fmt.Fprintln(w, "  -ignore <TYPE.FIELD>    destination fields to skip; repeatable")
-	fmt.Fprintln(w, "  -output <path>          output directory, or a file path ending in .go")
+	fmt.Fprintln(w, "  -converters <pkg>       package holding mapper.Register calls; repeatable")
+	fmt.Fprintln(w, "  -exclude <TYPE.FIELD>   destination fields to exclude; repeatable")
+	fmt.Fprintln(w, "  -destination <dir>      output directory for the generated file")
 	fmt.Fprintln(w, `  -direction <dir>        "both" (default), "to", or "from"`)
 	fmt.Fprintln(w, "  -package <name>         output package name (defaults to $GOPACKAGE)")
 	fmt.Fprintln(w, "  -check                  verify the output is up to date instead of writing it")
