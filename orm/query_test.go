@@ -1219,3 +1219,46 @@ func TestQuerierTransactionRunsAgainstMock(t *testing.T) {
 		t.Errorf("SQL = %q, want %q", got.SQL, want)
 	}
 }
+
+// --- PK + created_at only: nothing to SET / nothing to update on conflict ---
+
+type testMarker struct {
+	ID        int
+	CreatedAt time.Time
+}
+
+func newTestMarkerQuery(tq *orm.TestQuerier) *orm.Query[testMarker] {
+	q := orm.NewQuery[testMarker](
+		tq, "markers", []string{"id", "created_at"}, "id",
+		func(*sql.Rows) (testMarker, error) { return testMarker{}, nil },
+		func(m *testMarker, includesPK bool) ([]string, []any) {
+			if includesPK {
+				return []string{"id", "created_at"}, []any{m.ID, m.CreatedAt}
+			}
+			return []string{"created_at"}, []any{m.CreatedAt}
+		},
+		nil,
+	)
+	q.RegisterTimestamps([]string{"created_at"}, func(m *testMarker, now time.Time) {
+		if m.CreatedAt.IsZero() {
+			m.CreatedAt = now
+		}
+	}, nil, nil)
+	return q
+}
+
+func TestUpdateWithNoSettableColumnsErrors(t *testing.T) {
+	t.Parallel()
+
+	tq := orm.NewTestQuerier(orm.MySQL)
+	q := newTestMarkerQuery(tq)
+
+	m := testMarker{ID: 1}
+	err := q.Update(t.Context(), &m)
+	if err == nil {
+		t.Fatal("expected error for Update with no settable columns, got nil")
+	}
+	if len(tq.Queries) != 0 {
+		t.Errorf("no query should run, got %v", tq.Queries)
+	}
+}

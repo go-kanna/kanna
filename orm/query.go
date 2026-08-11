@@ -566,6 +566,9 @@ func (q *Query[T]) Update(ctx context.Context, t *T) error {
 	if !pkSeen || zeroPK(pkVal) {
 		return errors.New("orm: primary key value is required for Update")
 	}
+	if len(setCols) == 0 {
+		return errors.New("orm: Update has no columns to set")
+	}
 
 	setVals = append(setVals, pkVal)
 	query := q.buildUpdate(setCols)
