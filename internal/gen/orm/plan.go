@@ -278,10 +278,9 @@ func columnLike(named *types.Named) bool {
 	if obj := named.Obj(); obj.Name() == "Time" && obj.Pkg() != nil && obj.Pkg().Path() == "time" {
 		return true
 	}
-	ms := types.NewMethodSet(types.NewPointer(named))
-	for i := range ms.Len() {
-		sig, ok := ms.At(i).Obj().Type().(*types.Signature)
-		if !ok || ms.At(i).Obj().Name() != "Scan" {
+	for m := range types.NewMethodSet(types.NewPointer(named)).Methods() {
+		sig, ok := m.Obj().Type().(*types.Signature)
+		if !ok || m.Obj().Name() != "Scan" {
 			continue
 		}
 		if sig.Params().Len() == 1 && sig.Results().Len() == 1 {

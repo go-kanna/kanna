@@ -58,7 +58,7 @@ func TestEmitGolden(t *testing.T) {
 		return
 	}
 
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(golden) //nolint:gosec // fixed testdata path
 	if err != nil {
 		t.Fatal(err)
 	}
