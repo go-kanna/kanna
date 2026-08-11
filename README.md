@@ -118,12 +118,12 @@ concrete type.
 
 ### Flags
 
-| Flag              | Meaning                                             |
-|-------------------|-----------------------------------------------------|
-| `-o <file>`       | output file name per package (default: `di_gen.go`) |
-| `--must`          | emit `MustNew*` for every container                 |
-| `--tags <list>`   | comma-separated build tags                          |
-| `-v`, `--verbose` | verbose output                                      |
+| Flag              | Meaning                                                |
+|-------------------|--------------------------------------------------------|
+| `--must`          | emit `MustNew*` for every container                    |
+| `--tags <list>`   | comma-separated build tags                             |
+| `-check`          | verify generated files are up to date instead of writing them |
+| `-v`, `--verbose` | verbose output                                         |
 
 ### Example
 
@@ -270,6 +270,7 @@ either, and says so.
 | `-destination <dir>` | directory to write `fixture_gen.go` into                                     |
 | `-package <name>`    | package name for the generated file (default: what the destination declares) |
 | `-exclude <names>`   | comma-separated type names to skip                                           |
+| `-check`             | verify the output is up to date instead of writing it                        |
 
 The destination has to be a different package from the source; a fixture that imported its own package would not
 compile.

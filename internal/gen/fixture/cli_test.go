@@ -663,3 +663,47 @@ func TestParseFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestRunCheck(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":         "module example.com/consumer\n\ngo 1.25\n",
+		"model/model.go": "package model\n\ntype Employee struct {\n\tName string\n}\n",
+	})
+
+	if code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture"); code != exit.OK {
+		t.Fatalf("generate: %d\n%s", code, stderr)
+	}
+
+	// Freshly generated output passes.
+	if code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture", "-check"); code != exit.OK {
+		t.Fatalf("check after generate: %d\n%s", code, stderr)
+	}
+
+	// A model change makes it stale.
+	writeModule(t, dir, map[string]string{
+		"model/model.go": "package model\n\ntype Employee struct {\n\tName string\n\tAge  int\n}\n",
+	})
+	code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture", "-check")
+	if code != exit.Error || !strings.Contains(stderr, "out of date") {
+		t.Errorf("check on stale output = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestRunRefusesHandWrittenOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, map[string]string{
+		"go.mod":                 "module example.com/consumer\n\ngo 1.25\n",
+		"model/model.go":         "package model\n\ntype Employee struct {\n\tName string\n}\n",
+		"fixture/fixture_gen.go": "package fixture\n\n// Written by hand.\n",
+	})
+
+	code, _, stderr := runCLI(t, dir, "-source", "./model", "-destination", "./fixture")
+	if code != exit.Error || !strings.Contains(stderr, "refusing to overwrite") {
+		t.Errorf("Run() = %d, stderr = %q", code, stderr)
+	}
+}

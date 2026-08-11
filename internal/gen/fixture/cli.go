@@ -33,6 +33,7 @@ type Config struct {
 	Destination string
 	Package     string
 	Excludes    []string
+	Check       bool
 }
 
 // CLI is the command-line entry point for the fixture generator. Out and Err
@@ -173,19 +174,18 @@ func (c CLI) generate(cfg Config) int {
 		return exit.Error
 	}
 
-	// Generated Go source should be readable like the rest of the package,
-	// matching what gofmt/go generate produce by default.
-	//nolint:gosec // generated source directories are meant to be world-readable
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		fmt.Fprintln(c.Err, "create destination:", err)
-		return exit.Error
-	}
-
 	path := filepath.Join(dest, defaultOutputFile)
 
-	//nolint:gosec // generated source is meant to be world-readable
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		fmt.Fprintf(c.Err, "write %s: %v\n", path, err)
+	if cfg.Check {
+		if err := output.CheckUpToDate(path, out); err != nil {
+			fmt.Fprintln(c.Err, err)
+			return exit.Error
+		}
+		return exit.OK
+	}
+
+	if err := output.Write(path, out); err != nil {
+		fmt.Fprintln(c.Err, err)
 		return exit.Error
 	}
 
@@ -383,6 +383,7 @@ func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 	fs.StringVar(&cfg.Destination, "destination", "", "output directory for the generated file")
 	fs.StringVar(&cfg.Package, "package", "", "generated package name (defaults to what the destination declares)")
 	fs.StringVar(&exclude, "exclude", "", "comma-separated type names to exclude (e.g., -exclude Foo,Bar)")
+	fs.BoolVar(&cfg.Check, "check", false, "verify the output is up to date instead of writing it")
 	fs.BoolVar(&showVersion, "version", false, "print version")
 
 	if err := fs.Parse(args); err != nil {
@@ -443,6 +444,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  -destination <dir>   output directory for the generated file")
 	fmt.Fprintln(w, "  -package <name>      generated package name (defaults to what the destination declares)")
 	fmt.Fprintln(w, "  -exclude <names>     comma-separated type names to exclude (e.g., -exclude Foo,Bar)")
+	fmt.Fprintln(w, "  -check               verify the output is up to date instead of writing it")
 	fmt.Fprintln(w, "  --version            print version")
 	fmt.Fprintln(w, "  -h, --help           show this help")
 }
