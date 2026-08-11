@@ -102,7 +102,7 @@ func (f *fileEmit) resolve(t Table, r Relation) relEmit {
 		Relation:      r,
 		TargetTypeQ:   f.p.SourceName + "." + r.TargetType,
 		TargetFactory: factoryName(r.TargetType),
-		Preloader:     unexportedName("preload" + t.Name + r.FieldName),
+		Preloader:     preloaderName(t, r),
 		ParentPKField: t.PK().Name,
 	}
 
@@ -177,10 +177,10 @@ type tableNames struct {
 	SetUpdatedAt string
 }
 
-func (f *fileEmit) namesOf(t Table) tableNames {
+func names(srcName string, t Table) tableNames {
 	factory := factoryName(t.Name)
 	return tableNames{
-		Type:         f.p.SourceName + "." + t.Name,
+		Type:         srcName + "." + t.Name,
 		Factory:      factory,
 		ColumnsVar:   unexportedName(factory + "Columns"),
 		Scan:         unexportedName("scan" + t.Name),
@@ -191,8 +191,29 @@ func (f *fileEmit) namesOf(t Table) tableNames {
 	}
 }
 
+// preloaderName is the identifier of the preloader emitted for r.
+func preloaderName(t Table, r Relation) string {
+	return unexportedName("preload" + t.Name + r.FieldName)
+}
+
+// emittedNames lists every identifier Emit may declare for tables, for the
+// clash guard. It deliberately over-approximates — a setter the emitter ends
+// up not writing is still reserved — so the guard cannot drift when the
+// emitter's conditions change.
+func emittedNames(tables []Table) []string {
+	var out []string
+	for _, t := range tables {
+		n := names("", t)
+		out = append(out, n.Factory, n.ColumnsVar, n.Scan, n.ColVal, n.SetPK, n.SetCreatedAt, n.SetUpdatedAt)
+		for _, r := range t.Relations {
+			out = append(out, preloaderName(t, r))
+		}
+	}
+	return out
+}
+
 func (f *fileEmit) writeTable(b *strings.Builder, t Table) {
-	n := f.namesOf(t)
+	n := names(f.p.SourceName, t)
 	rels := f.rels[t.Name]
 	created, updated := timestampFields(t)
 
@@ -229,17 +250,18 @@ func (f *fileEmit) writeFactory(b *strings.Builder, t Table, n tableNames, rels 
 	fmt.Fprintf(b, "// %s returns a new Query for the %s table.\n", n.Factory, t.TableName)
 	fmt.Fprintf(b, "func %s(db orm.Querier) *orm.Query[%s] {\n", n.Factory, n.Type)
 
-	if len(rels) == 0 && len(created) == 0 && len(updated) == 0 {
-		fmt.Fprintf(b, "\treturn orm.NewQuery[%s](\n", n.Type)
-		fmt.Fprintf(b, "\t\tdb, orm.ResolveTableName[%s](%q), %s, %q,\n", n.Type, t.TableName, n.ColumnsVar, pk.Column)
-		fmt.Fprintf(b, "\t\t%s, %s, %s,\n", n.Scan, n.ColVal, setPK)
+	plain := len(rels) == 0 && len(created) == 0 && len(updated) == 0
+	lead := "\tq :="
+	if plain {
+		lead = "\treturn"
+	}
+	fmt.Fprintf(b, "%s orm.NewQuery[%s](\n", lead, n.Type)
+	fmt.Fprintf(b, "\t\tdb, orm.ResolveTableName[%s](%q), %s, %q,\n", n.Type, t.TableName, n.ColumnsVar, pk.Column)
+	fmt.Fprintf(b, "\t\t%s, %s, %s,\n", n.Scan, n.ColVal, setPK)
+	if plain {
 		b.WriteString("\t)\n}\n\n")
 		return
 	}
-
-	fmt.Fprintf(b, "\tq := orm.NewQuery[%s](\n", n.Type)
-	fmt.Fprintf(b, "\t\tdb, orm.ResolveTableName[%s](%q), %s, %q,\n", n.Type, t.TableName, n.ColumnsVar, pk.Column)
-	fmt.Fprintf(b, "\t\t%s, %s, %s,\n", n.Scan, n.ColVal, setPK)
 	b.WriteString("\t)\n")
 
 	for _, r := range rels {
@@ -436,7 +458,7 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 		fmt.Fprintf(b, "\t\tbyFK[r.%s] = append(byFK[r.%s], r)\n", r.ForeignKeyField, r.ForeignKeyField)
 		b.WriteString("\t}\n")
 		b.WriteString("\tfor i := range results {\n")
-		fmt.Fprintf(b, "\t\tresults[i].%s = byFK[results[i].%s]\n", r.FieldName, pkFieldOf(r))
+		fmt.Fprintf(b, "\t\tresults[i].%s = byFK[results[i].%s]\n", r.FieldName, r.ParentPKField)
 		b.WriteString("\t}\n\treturn nil\n")
 
 	case "has_one":
@@ -456,7 +478,7 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 			b.WriteString("\t}\n")
 		}
 		b.WriteString("\tfor i := range results {\n")
-		fmt.Fprintf(b, "\t\tresults[i].%s = byFK[results[i].%s]\n", r.FieldName, pkFieldOf(r))
+		fmt.Fprintf(b, "\t\tresults[i].%s = byFK[results[i].%s]\n", r.FieldName, r.ParentPKField)
 		b.WriteString("\t}\n\treturn nil\n")
 
 	case "many_to_many":
@@ -475,7 +497,7 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 		b.WriteString("\t}\n")
 		b.WriteString("\tgrouped := orm.GroupBySource(pairs)\n")
 		b.WriteString("\tfor i := range results {\n")
-		fmt.Fprintf(b, "\t\ttIDs := grouped[results[i].%s]\n", pkFieldOf(r))
+		fmt.Fprintf(b, "\t\ttIDs := grouped[results[i].%s]\n", r.ParentPKField)
 		fmt.Fprintf(b, "\t\titems := make([]%s, 0, len(tIDs))\n", r.TargetTypeQ)
 		b.WriteString("\t\tfor _, tid := range tIDs {\n\t\t\tif v, ok := byPK[tid]; ok {\n")
 		b.WriteString("\t\t\t\titems = append(items, v)\n\t\t\t}\n\t\t}\n")
@@ -529,13 +551,8 @@ func (f *fileEmit) writePreloader(b *strings.Builder, n tableNames, r relEmit) {
 func writeCollectPKs(b *strings.Builder, r relEmit) {
 	fmt.Fprintf(b, "\tids := make([]%s, len(results))\n", r.KeyType)
 	b.WriteString("\tfor i := range results {\n")
-	fmt.Fprintf(b, "\t\tids[i] = results[i].%s\n", pkFieldOf(r))
+	fmt.Fprintf(b, "\t\tids[i] = results[i].%s\n", r.ParentPKField)
 	b.WriteString("\t}\n")
-}
-
-// pkFieldOf is the parent's primary key Go field the preloaders read.
-func pkFieldOf(r relEmit) string {
-	return r.ParentPKField
 }
 
 func unexportedName(s string) string {

@@ -336,32 +336,6 @@ func clashes(declared map[string]token.Position, tables []Table) []diag.Diag {
 	return diags
 }
 
-// emittedNames lists the top-level identifiers Emit declares for tables.
-func emittedNames(tables []Table) []string {
-	var out []string
-	for _, t := range tables {
-		factory := factoryName(t.Name)
-		out = append(out, factory,
-			unexportedName(factory+"Columns"),
-			unexportedName("scan"+t.Name),
-			unexportedName(t.Name+"ColumnValuePairs"))
-		if isIntType(t.PK().GoType) {
-			out = append(out, unexportedName("set"+t.Name+"PK"))
-		}
-		created, updated := timestampFields(t)
-		if len(created) > 0 {
-			out = append(out, unexportedName("set"+t.Name+"CreatedAt"))
-		}
-		if len(updated) > 0 {
-			out = append(out, unexportedName("set"+t.Name+"UpdatedAt"))
-		}
-		for _, r := range t.Relations {
-			out = append(out, unexportedName("preload"+t.Name+r.FieldName))
-		}
-	}
-	return out
-}
-
 // resolvePath resolves symlinks best-effort, falling back to the input when
 // the path cannot be resolved (e.g., it does not exist yet).
 func resolvePath(path string) string {
