@@ -64,14 +64,12 @@ func (c CLI) Run(args []string) int {
 		verbose     bool
 		tagsRaw     string
 		mustFlag    bool
-		outputFile  string
 		showVersion bool
 	)
 	fs.BoolVar(&verbose, "v", false, "verbose output")
 	fs.BoolVar(&verbose, "verbose", false, "verbose output")
 	fs.StringVar(&tagsRaw, "tags", "", "comma-separated build tags")
 	fs.BoolVar(&mustFlag, "must", false, "generate MustNew* constructors that panic on error")
-	fs.StringVar(&outputFile, "o", defaultOutputFile, "output file name (per package)")
 	fs.BoolVar(&showVersion, "version", false, "print version")
 
 	if err := fs.Parse(args); err != nil {
@@ -95,7 +93,7 @@ func (c CLI) Run(args []string) int {
 	}
 
 	if verbose {
-		fmt.Fprintln(c.Out, "output:", outputFile)
+		fmt.Fprintln(c.Out, "output:", defaultOutputFile)
 		if tagsRaw != "" {
 			fmt.Fprintln(c.Out, "tags:", tagsRaw)
 		}
@@ -178,7 +176,7 @@ func (c CLI) Run(args []string) int {
 
 		outDir := filepath.Dir(group.containers[0].Pos.Filename)
 		pending = append(pending, pendingFile{
-			path: filepath.Join(outDir, outputFile),
+			path: filepath.Join(outDir, defaultOutputFile),
 			data: out,
 		})
 	}
@@ -251,13 +249,12 @@ func (c CLI) printDiags(ds []diag.Diag) {
 }
 
 func (c CLI) printUsage(w io.Writer) {
-	fmt.Fprintln(w, "kanna-di — type-safe dependency-injection code generator for Go")
+	fmt.Fprintln(w, "kanna-di — generate type-safe dependency-injection constructors from container structs")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  kanna-di [flags] <packages>...")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Flags:")
-	fmt.Fprintln(w, "  -o <file>          output file name per package (default: "+defaultOutputFile+")")
 	fmt.Fprintln(w, "  --tags <list>      comma-separated build tags")
 	fmt.Fprintln(w, "  --must             generate MustNew* constructors that panic on error")
 	fmt.Fprintln(w, "  -v, --verbose      verbose output")

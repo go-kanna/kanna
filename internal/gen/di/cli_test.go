@@ -33,8 +33,8 @@ func TestCLI_FlagValueNamedHelp(t *testing.T) {
 	var out, errOut bytes.Buffer
 	c := di.CLI{Out: &out, Err: &errOut, Version: "v"}
 
-	// -o names the output file, so "help" here is its value.
-	if code := c.Run([]string{"-o", "help", "./does-not-exist"}); code == exit.OK {
+	// -tags takes a value, so "help" here is that value, not the subcommand.
+	if code := c.Run([]string{"-tags", "help", "./does-not-exist"}); code == exit.OK {
 		t.Errorf("exit code = %d, want a failure", code)
 	}
 	if strings.Contains(out.String(), "Usage:") {
@@ -138,7 +138,7 @@ type Container struct {
 	}
 }
 
-func TestCLI_RespectsOutputFlag(t *testing.T) {
+func TestCLI_WritesFixedOutputFile(t *testing.T) {
 	t.Parallel()
 
 	dir := writeModule(t, map[string]string{
@@ -158,16 +158,13 @@ type Container struct {
 	var out, errOut bytes.Buffer
 	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
 
-	code := c.Run([]string{"-o", "wired.go", "./..."})
+	code := c.Run([]string{"./..."})
 	if code != exit.OK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "wired.go")); err != nil {
-		t.Errorf("expected wired.go to exist: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "di_gen.go")); err == nil {
-		t.Error("default output file was written despite -o")
+	if _, err := os.Stat(filepath.Join(dir, "di_gen.go")); err != nil {
+		t.Errorf("expected di_gen.go to exist: %v", err)
 	}
 }
 
