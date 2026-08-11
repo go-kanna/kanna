@@ -43,6 +43,7 @@ type Field struct {
 	Column     string
 	GoType     string   // rendered relative to the source package, e.g. "time.Time"
 	IntKind    bool     // underlying type is an integer, however it is named
+	Comparable bool     // usable as a map key
 	TypePkgs   []PkgRef // packages GoType mentions
 	PrimaryKey bool
 	CreatedAt  bool
@@ -240,6 +241,7 @@ func buildField(f ir.Field, col *columnTag, hasTag bool) (Field, bool) {
 		Column:     column,
 		GoType:     goType,
 		IntKind:    isBasic && basic.Info()&types.IsInteger != 0,
+		Comparable: types.Comparable(f.Type),
 		TypePkgs:   typePkgs,
 		PrimaryKey: col.PrimaryKey,
 		CreatedAt:  col.CreatedAt || (!hasTag && f.Name == "CreatedAt"),
@@ -276,10 +278,16 @@ func columnLike(named *types.Named) bool {
 	}
 	for m := range types.NewMethodSet(types.NewPointer(named)).Methods() {
 		sig, ok := m.Obj().Type().(*types.Signature)
-		if !ok || m.Obj().Name() != "Scan" {
+		if !ok || m.Obj().Name() != "Scan" || sig.Params().Len() != 1 || sig.Results().Len() != 1 {
 			continue
 		}
-		if sig.Params().Len() == 1 && sig.Results().Len() == 1 {
+		// The sql.Scanner contract exactly: Scan(any) error. Anything else
+		// named Scan is not something database/sql can hand a value to.
+		param, isInterface := sig.Params().At(0).Type().Underlying().(*types.Interface)
+		if !isInterface || !param.Empty() {
+			continue
+		}
+		if types.Identical(sig.Results().At(0).Type(), types.Universe.Lookup("error").Type()) {
 			return true
 		}
 	}
@@ -311,6 +319,13 @@ func buildRelation(s ir.Struct, f ir.Field, rel *relationTag, srcPkg *types.Pack
 		}
 		return nil, []diag.Diag{diag.Errorf(f.Pos,
 			"%s.%s: a %s field must be %s", s.Name, f.Name, rel.Kind, shape)}
+	}
+	if isSlice && isPointer {
+		// The generated preloader builds []T and assigns it to the field, so
+		// a pointer element would be a type error far from this tag.
+		return nil, []diag.Diag{diag.Errorf(f.Pos,
+			"%s.%s: a %s field must be a slice of structs; pointer elements are not supported",
+			s.Name, f.Name, rel.Kind)}
 	}
 
 	if p := named.Obj().Pkg(); p != nil && p != srcPkg {
@@ -467,6 +482,17 @@ func resolveLocal(t *Table, r *Relation, byName map[string]*Table, marked, inPac
 	r.TargetPKField = target.PK().Name
 	r.TargetKeyType = target.PK().GoType
 	r.TypeDeps = append(r.TypeDeps, target.PK().TypePkgs...)
+
+	// Every kind keys a map (or QueryJoinTable's comparable parameters) by
+	// these types, so []byte and friends have to be caught here rather than
+	// as a compile error in the output.
+	for _, pk := range []Field{t.PK(), target.PK()} {
+		if !pk.Comparable {
+			return []diag.Diag{diag.Errorf(r.Pos,
+				"%s.%s: primary key type %s is not comparable, and preloading keys maps by it",
+				t.Name, r.FieldName, pk.GoType)}
+		}
+	}
 
 	switch r.Kind {
 	case "belongs_to":

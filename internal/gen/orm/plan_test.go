@@ -555,3 +555,63 @@ type User struct {
 }
 `, "primary key")
 }
+
+func TestTablesRejectsPointerSliceRelation(t *testing.T) {
+	t.Parallel()
+
+	wantError(t, `package model
+
+//kanna:table
+type User struct {
+	ID    int
+	Posts []*Post `+"`"+`orm:"has_many,foreign_key:user_id"`+"`"+`
+}
+
+//kanna:table
+type Post struct {
+	ID     int
+	UserID int
+}
+`, "pointer elements")
+}
+
+func TestTablesScanMethodMustMatchScannerContract(t *testing.T) {
+	t.Parallel()
+
+	// Scan(int) bool is not the sql.Scanner contract, so the untagged pointer
+	// keeps reading as a relation shape and is dropped, not kept as a column.
+	tables := mustPlan(t, `package model
+
+//kanna:table
+type Entry struct {
+	ID  int
+	Odd *Odd
+}
+
+type Odd struct{ X int }
+
+func (o *Odd) Scan(i int) bool { return i > 0 }
+`)
+	if len(tables[0].Fields) != 1 {
+		t.Errorf("fields = %+v, want only id", tables[0].Fields)
+	}
+}
+
+func TestTablesRejectsUncomparableRelationKeys(t *testing.T) {
+	t.Parallel()
+
+	wantError(t, `package model
+
+//kanna:table
+type Blob struct {
+	Key   []byte `+"`"+`orm:",primary_key"`+"`"+`
+	Parts []Part `+"`"+`orm:"has_many,foreign_key:blob_key"`+"`"+`
+}
+
+//kanna:table
+type Part struct {
+	ID      int
+	BlobKey []byte
+}
+`, "not comparable")
+}
