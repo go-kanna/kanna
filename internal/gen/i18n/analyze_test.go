@@ -296,6 +296,51 @@ func TestAnalyze_skipsNonLocaleFiles(t *testing.T) {
 	}
 }
 
+func TestAnalyze_warnsOnSubdirectories(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "en.yaml"), "greeting: \"Hello!\"\n")
+	if err := os.Mkdir(filepath.Join(dir, "ja"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "ja", "app.yaml"), "greeting: \"こんにちは\"\n")
+
+	m, ds := i18n.Analyze(dir, language.English)
+	model := mustModel(t, m, ds)
+	warnings := warningsOf(ds)
+	if len(model.Messages) != 1 {
+		t.Errorf("len(Messages) = %d, want 1", len(model.Messages))
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "skipping directory ja") {
+		t.Errorf("warnings = %v, want a skipping warning for the ja subdirectory", warnings)
+	}
+}
+
+// The layout that motivated the warning: every locale in its own
+// subdirectory. The run still fails with "no locale files found", but the
+// warnings now say why nothing was found.
+func TestAnalyze_subdirectoriesOnlyStillErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "en"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "en", "app.yaml"), "greeting: \"Hello!\"\n")
+
+	_, ds := i18n.Analyze(dir, language.English)
+	if !diag.HasErrors(ds) {
+		t.Fatal("Analyze() reported no errors")
+	}
+	if got := diag.Format(ds); !strings.Contains(got, "no locale files found") {
+		t.Errorf("diagnostics %q do not contain the no-locale-files error", got)
+	}
+	if ws := warningsOf(ds); len(ws) != 1 || !strings.Contains(ws[0], "skipping directory en") {
+		t.Errorf("warnings = %v, want a skipping warning for the en subdirectory", ws)
+	}
+}
+
 // The default locale resolves like the runtime matcher: region- and
 // script-qualified files satisfy a bare default language.
 func TestAnalyze_defaultLocaleViaMatcher(t *testing.T) {
