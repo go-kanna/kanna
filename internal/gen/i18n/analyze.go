@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -160,13 +161,15 @@ func sameBase(a, b language.Tag) bool {
 	return baseA == baseB
 }
 
-// loadCatalogs loads every locale file in dir. Files whose stem is not a
-// language tag (config.yaml and the like) are skipped with a warning rather
-// than failing the run, keeping typos visible without banning cohabitation.
-// Subdirectories get the same treatment: discovery is deliberately flat, and
-// the warning is what tells someone with a locales/en/app.yaml layout why
-// nothing was found. A file that fails to parse is reported and the rest are
-// still read, so one run surfaces every broken file.
+// loadCatalogs loads every locale file in dir. Discovery is deliberately flat
+// and nothing locale-shaped is skipped in silence: an entry named like a
+// locale that cannot be read — a subdirectory such as en/, or en.json — is an
+// error, because that language would otherwise drop out of the bundle with
+// the build staying green. Mere cohabitation stays non-fatal: files that are
+// not locale files warn (config.yaml and the like), as does a directory
+// holding locale files; dot-prefixed entries are silent. A file that fails to
+// parse is reported and the rest are still read, so one run surfaces every
+// broken file.
 func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -176,15 +179,34 @@ func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 	var catalogs []locale.Catalog
 	var diags []diag.Diag
 	for _, e := range entries {
-		if e.IsDir() {
-			diags = append(diags, diag.Warningf(token.Position{Filename: filepath.Join(dir, e.Name())},
-				"skipping directory %s: locale files must sit directly in %s", e.Name(), dir))
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		if !locale.SupportedFile(e.Name()) {
+		path := filepath.Join(dir, name)
+		if entryIsDir(e, path) {
+			if _, err := language.Parse(name); err == nil {
+				diags = append(diags, diag.Errorf(token.Position{},
+					"locale %s is a directory: locale discovery is flat, one file per language", name).
+					WithHints(fmt.Sprintf("merge its files into a single %s.yaml (or .yml/.toml) directly in %s", name, dir)))
+			} else if holdsLocaleFiles(path) {
+				diags = append(diags, diag.Warningf(token.Position{},
+					"skipping directory %s: it holds locale files, but discovery is flat", name).
+					WithHints("move them directly into "+dir))
+			}
 			continue
 		}
-		path := filepath.Join(dir, e.Name())
+		if !locale.SupportedFile(name) {
+			if _, err := locale.TagFromPath(name); err == nil {
+				diags = append(diags, diag.Errorf(token.Position{Filename: path},
+					"cannot read %s: unsupported locale file extension %q", name, filepath.Ext(name)).
+					WithHints("supported extensions: "+strings.Join(locale.SupportedExtensions(), ", ")))
+			} else {
+				diags = append(diags, diag.Warningf(token.Position{Filename: path},
+					"skipping %s: unsupported extension %q", name, filepath.Ext(name)))
+			}
+			continue
+		}
 		// Pre-check the stem separately from ParseFile so that non-locale
 		// files are skipped with a warning while broken locale files below
 		// still fail the run. The duplicate tag derivation is deliberate.
@@ -209,6 +231,35 @@ func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 		diags = append(diags, diag.Errorf(token.Position{}, "no locale files found in %s", dir))
 	}
 	return catalogs, diags
+}
+
+// entryIsDir reports whether the entry is a directory, following symlinks so
+// a linked locale directory is diagnosed like a real one.
+func entryIsDir(e os.DirEntry, path string) bool {
+	if e.IsDir() {
+		return true
+	}
+	if e.Type()&fs.ModeSymlink == 0 {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// holdsLocaleFiles reports whether the directory directly contains a supported
+// locale file. One level only: the point is to recognize a nested layout, not
+// to search for one.
+func holdsLocaleFiles(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && locale.SupportedFile(e.Name()) {
+			return true
+		}
+	}
+	return false
 }
 
 // localeDiag converts a locale error into a diagnostic, keeping the position
