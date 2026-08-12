@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -157,17 +158,23 @@ func SupportedFile(path string) bool {
 	return ok
 }
 
-// parserFor maps a file extension to its parser. It is the single registry
-// of supported locale formats.
+// parsers is the single registry of supported locale formats, keyed by
+// lowercase file extension.
+var parsers = map[string]func(language.Tag, []byte) (Catalog, error){
+	".yaml": ParseYAML,
+	".yml":  ParseYAML,
+	".toml": ParseTOML,
+}
+
+// parserFor maps a file extension to its parser.
 func parserFor(path string) (func(language.Tag, []byte) (Catalog, error), bool) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
-		return ParseYAML, true
-	case ".toml":
-		return ParseTOML, true
-	default:
-		return nil, false
-	}
+	p, ok := parsers[strings.ToLower(filepath.Ext(path))]
+	return p, ok
+}
+
+// SupportedExtensions lists the recognized locale file extensions, sorted.
+func SupportedExtensions() []string {
+	return slices.Sorted(maps.Keys(parsers))
 }
 
 // TagFromPath derives the language tag from the filename stem.

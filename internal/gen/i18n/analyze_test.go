@@ -1,6 +1,7 @@
 package i18n_test
 
 import (
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -296,48 +297,153 @@ func TestAnalyze_skipsNonLocaleFiles(t *testing.T) {
 	}
 }
 
-func TestAnalyze_warnsOnSubdirectories(t *testing.T) {
+// diagWith returns the first diagnostic whose message contains substr.
+func diagWith(t *testing.T, ds []diag.Diag, substr string) diag.Diag {
+	t.Helper()
+	for _, d := range ds {
+		if strings.Contains(d.Message, substr) {
+			return d
+		}
+	}
+	t.Fatalf("no diagnostic contains %q in %v", substr, ds)
+	return diag.Diag{}
+}
+
+// A subdirectory named like a locale would drop a whole language from the
+// bundle while the build stays green, so it is an error, not a warning.
+func TestAnalyze_tagNamedSubdirectoryIsError(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "en.yaml"), "greeting: \"Hello!\"\n")
-	if err := os.Mkdir(filepath.Join(dir, "ja"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(dir, "ja", "app.yaml"), "greeting: \"こんにちは\"\n")
+	writeTree(t, dir, map[string]string{
+		"en.yaml":     "greeting: \"Hello!\"\n",
+		"ja/app.yaml": "greeting: \"こんにちは\"\n",
+	})
 
-	m, ds := i18n.Analyze(dir, language.English)
-	model := mustModel(t, m, ds)
-	warnings := warningsOf(ds)
-	if len(model.Messages) != 1 {
-		t.Errorf("len(Messages) = %d, want 1", len(model.Messages))
+	_, ds := i18n.Analyze(dir, language.English)
+	if !diag.HasErrors(ds) {
+		t.Fatal("Analyze() reported no errors for a tag-named subdirectory")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "skipping directory ja") {
-		t.Errorf("warnings = %v, want a skipping warning for the ja subdirectory", warnings)
+	d := diagWith(t, ds, "locale ja is a directory")
+	if d.Severity != diag.SeverityError {
+		t.Errorf("Severity = %v, want error", d.Severity)
+	}
+	if d.Pos != (token.Position{}) {
+		t.Errorf("Pos = %v, want zero like the other directory-level diagnostics", d.Pos)
+	}
+	if len(d.Hints) != 1 || !strings.Contains(d.Hints[0], "ja.yaml") {
+		t.Errorf("Hints = %v, want one remedy naming ja.yaml", d.Hints)
 	}
 }
 
-// The layout that motivated the warning: every locale in its own
-// subdirectory. The run still fails with "no locale files found", but the
-// warnings now say why nothing was found.
+// The layout that motivated the diagnostic: every locale in its own
+// subdirectory. The run fails and the errors say why nothing was found.
 func TestAnalyze_subdirectoriesOnlyStillErrors(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, "en"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(dir, "en", "app.yaml"), "greeting: \"Hello!\"\n")
+	writeTree(t, dir, map[string]string{"en/app.yaml": "greeting: \"Hello!\"\n"})
 
 	_, ds := i18n.Analyze(dir, language.English)
 	if !diag.HasErrors(ds) {
 		t.Fatal("Analyze() reported no errors")
 	}
-	if got := diag.Format(ds); !strings.Contains(got, "no locale files found") {
-		t.Errorf("diagnostics %q do not contain the no-locale-files error", got)
+	diagWith(t, ds, "locale en is a directory")
+}
+
+// DirEntry.IsDir is false for a symlink, so dir-ness must come from Stat: a
+// linked locale directory is diagnosed like a real one.
+func TestAnalyze_symlinkedSubdirectoryIsError(t *testing.T) {
+	t.Parallel()
+
+	target := t.TempDir()
+	writeTree(t, target, map[string]string{"app.yaml": "greeting: \"こんにちは\"\n"})
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"en.yaml": "greeting: \"Hello!\"\n"})
+	if err := os.Symlink(target, filepath.Join(dir, "ja")); err != nil {
+		t.Fatalf("symlink: %v", err)
 	}
-	if ws := warningsOf(ds); len(ws) != 1 || !strings.Contains(ws[0], "skipping directory en") {
-		t.Errorf("warnings = %v, want a skipping warning for the en subdirectory", ws)
+
+	_, ds := i18n.Analyze(dir, language.English)
+	if !diag.HasErrors(ds) {
+		t.Fatal("Analyze() reported no errors for a symlinked locale directory")
+	}
+	diagWith(t, ds, "locale ja is a directory")
+}
+
+// A file named like a locale in a format kanna cannot read is the same
+// silent-loss hazard as a locale directory, so it is an error too.
+func TestAnalyze_unsupportedExtensionWithTagStemIsError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"en.yaml": "greeting: \"Hello!\"\n",
+		"fr.json": "{}\n",
+	})
+
+	_, ds := i18n.Analyze(dir, language.English)
+	if !diag.HasErrors(ds) {
+		t.Fatal("Analyze() reported no errors for fr.json")
+	}
+	d := diagWith(t, ds, "cannot read fr.json")
+	if len(d.Hints) != 1 || !strings.Contains(d.Hints[0], ".toml, .yaml, .yml") {
+		t.Errorf("Hints = %v, want the supported extensions", d.Hints)
+	}
+}
+
+func TestAnalyze_unsupportedExtensionOtherwiseWarns(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"en.yaml":   "greeting: \"Hello!\"\n",
+		"notes.txt": "scratch\n",
+	})
+
+	m, ds := i18n.Analyze(dir, language.English)
+	mustModel(t, m, ds)
+	if ws := warningsOf(ds); len(ws) != 1 || !strings.Contains(ws[0], "skipping notes.txt") {
+		t.Errorf("warnings = %v, want a skipping warning for notes.txt", ws)
+	}
+}
+
+// A subdirectory that is not itself a locale but holds locale files points at
+// a nested layout, so it warns; the files may also be deliberate leftovers, so
+// it does not fail the run.
+func TestAnalyze_warnsWhenSubdirectoryHoldsLocaleFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"en.yaml":              "greeting: \"Hello!\"\n",
+		"translations/de.yaml": "greeting: \"Hallo!\"\n",
+	})
+
+	m, ds := i18n.Analyze(dir, language.English)
+	mustModel(t, m, ds)
+	if ws := warningsOf(ds); len(ws) != 1 || !strings.Contains(ws[0], "skipping directory translations") {
+		t.Errorf("warnings = %v, want a skipping warning for translations", ws)
+	}
+}
+
+// Directories with no locale relationship — the generator's own output, VCS
+// and editor artifacts — stay silent, or every run would nag.
+func TestAnalyze_unrelatedEntriesStaySilent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"en.yaml":              "greeting: \"Hello!\"\n",
+		"messages/i18n_gen.go": "package messages\n",
+		".git/config":          "[core]\n",
+		".DS_Store":            "junk",
+	})
+
+	m, ds := i18n.Analyze(dir, language.English)
+	mustModel(t, m, ds)
+	if ws := warningsOf(ds); len(ws) != 0 {
+		t.Errorf("warnings = %v, want none", ws)
 	}
 }
 
