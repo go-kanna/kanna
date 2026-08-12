@@ -535,6 +535,10 @@ user:
 With the defaults, that one line reads `locales/` and writes `messages/i18n_gen.go`: a constructor per message, a
 `Localizer` accessor, and the translations of every language as an embedded bundle.
 
+Discovery is flat: one file defines one language, and subdirectories are never scanned. Nothing locale-shaped is
+skipped in silence — a subdirectory or unreadable file named like a locale (`locales/en/`, `en.json`) fails the run,
+and other non-locale files are skipped with a warning.
+
 ```go
 // Hello returns the "hello" message.
 func Hello(name string) i18n.Message {
