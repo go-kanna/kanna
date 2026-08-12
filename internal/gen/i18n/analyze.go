@@ -163,8 +163,10 @@ func sameBase(a, b language.Tag) bool {
 // loadCatalogs loads every locale file in dir. Files whose stem is not a
 // language tag (config.yaml and the like) are skipped with a warning rather
 // than failing the run, keeping typos visible without banning cohabitation.
-// A file that fails to parse is reported and the rest are still read, so one
-// run surfaces every broken file.
+// Subdirectories get the same treatment: discovery is deliberately flat, and
+// the warning is what tells someone with a locales/en/app.yaml layout why
+// nothing was found. A file that fails to parse is reported and the rest are
+// still read, so one run surfaces every broken file.
 func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -174,7 +176,12 @@ func loadCatalogs(dir string) ([]locale.Catalog, []diag.Diag) {
 	var catalogs []locale.Catalog
 	var diags []diag.Diag
 	for _, e := range entries {
-		if e.IsDir() || !locale.SupportedFile(e.Name()) {
+		if e.IsDir() {
+			diags = append(diags, diag.Warningf(token.Position{Filename: filepath.Join(dir, e.Name())},
+				"skipping directory %s: locale files must sit directly in %s", e.Name(), dir))
+			continue
+		}
+		if !locale.SupportedFile(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
