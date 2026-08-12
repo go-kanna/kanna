@@ -4,7 +4,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/go-kanna/kanna/examples/di/infra"
+	"github.com/go-kanna/kanna/examples/di/app/infra"
 )
 
 // Env names the deployment environment.

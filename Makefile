@@ -64,5 +64,5 @@ examples:
 	@for ex in $(GENERATORS); do \
 		echo ">>> regenerate examples/$$ex"; \
 		(cd examples/$$ex && go generate ./...) || exit 1; \
-		(cd examples/$$ex && go vet ./... && go build ./... && go run .) || exit 1; \
+		(cd examples/$$ex && go vet ./... && go build ./... && go run ./...) || exit 1; \
 	done
