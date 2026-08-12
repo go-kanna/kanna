@@ -1,16 +1,20 @@
-// Command di wires a small application with kanna-di, exercising the tags and
-// directives it understands.
+// Package app wires a small application with kanna-di, exercising the tags
+// and directives it understands.
+//
+// The main function lives in cmd/demo, outside the packages the directive
+// below scans. kanna-di needs the packages it loads to type-check, so keeping
+// the callers of the generated constructors out of the scanned tree means a
+// stale di_gen.go can always be deleted and regenerated instead of wedging
+// the build.
 //
 // Regenerate with:
 //
 //	go generate ./...
-package main
+package app
 
 import (
-	"fmt"
-
-	"github.com/go-kanna/kanna/examples/di/infra"
-	"github.com/go-kanna/kanna/examples/di/service"
+	"github.com/go-kanna/kanna/examples/di/app/infra"
+	"github.com/go-kanna/kanna/examples/di/app/service"
 )
 
 //go:generate go tool kanna-di ./...
@@ -37,18 +41,4 @@ type App struct {
 
 	User     service.User     `di:""`
 	Notifier service.Notifier `di:"with=service.NewLogNotifier"`
-}
-
-func main() {
-	app := NewApp(infra.MustNewDeps(), "production")
-
-	if err := app.User.Register("alice"); err != nil {
-		panic(err)
-	}
-	if err := app.Notifier.Notify("alice registered"); err != nil {
-		panic(err)
-	}
-
-	// A container may also present itself as an interface; see greeter.go.
-	fmt.Println(NewGreeterService("staging").Greet("Bob"))
 }

@@ -1,6 +1,6 @@
-package main
+package app
 
-import "github.com/go-kanna/kanna/examples/di/service"
+import "github.com/go-kanna/kanna/examples/di/app/service"
 
 // greeterApp is a container that presents itself as a service.Greeter instead
 // of as *greeterApp, by implementing the interface and delegating.
