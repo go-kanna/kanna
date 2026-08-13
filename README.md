@@ -253,6 +253,37 @@ generated file always compiles.
 Write it against the comment marker. `// kanna:ignore` is not a directive to Go, so kanna does not treat it as one
 either, and says so.
 
+### Graphs
+
+When the source structs carry [kanna-orm](#kanna-orm) relations, fixtures grow a second form: every `//kanna:table`
+struct whose `belongs_to` foreign keys cannot be NULL gets a graph — the record bundled with everything it needs to
+exist, keys consistent, records in insertion order.
+
+```go
+g := fixture.NewEmployeeGraph(func(g *fixture.EmployeeGraph) {
+	g.Department.Name = "Engineering"
+})
+// g.Employee.DepartmentID == g.Department.ID, g.Department.CompanyID == g.Company.ID
+
+for _, rec := range g.Records() { // foreign-key insertion order
+	// insert rec
+}
+```
+
+Integer keys come from a process-wide counter and are set before any insert, which is what lets `Records()` go into a
+real database as-is: kanna-orm's `Create` takes a caller-set key verbatim. A nullable foreign key (`*int64`) marks the
+parent optional, so the graph neither builds nor wires it. Share a parent by plain assignment and call `Wire()` to make
+the keys follow:
+
+```go
+colleague := fixture.NewEmployeeGraph()
+colleague.Department = g.Department
+colleague.Wire()
+```
+
+A package without orm tags is untouched: graphs appear only where relations do.
+
+
 ### Flags
 
 | Flag                 | Meaning                                                                      |

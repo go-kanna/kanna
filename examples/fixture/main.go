@@ -47,4 +47,29 @@ func main() {
 	// A pointer field stays nil, and an ignored struct gets no fixture at all.
 	user := fixture.User()
 	fmt.Printf("nickname is nil: %t\n", user.Nickname == nil)
+
+	// A //kanna:table struct with required belongs_to relations also gets a
+	// graph: the record plus everything it needs to exist, foreign keys wired,
+	// records in insertion order.
+	g := fixture.NewEmployeeGraph(func(g *fixture.EmployeeGraph) {
+		g.Department.Name = "Engineering"
+	})
+	if g.Employee.DepartmentID != g.Department.ID || g.Department.CompanyID != g.Company.ID {
+		panic("graph keys are not wired")
+	}
+	if g.Employee.ManagerID != nil {
+		panic("the optional manager relation crept into the graph")
+	}
+	fmt.Printf("employee %s works in %s at %s\n", g.Employee.Name, g.Department.Name, g.Company.Name)
+	fmt.Printf("records to insert, parents first: %d\n", len(g.Records()))
+
+	// Sharing a parent is ordinary assignment; Wire makes the keys follow.
+	colleague := fixture.NewEmployeeGraph()
+	colleague.Company = g.Company
+	colleague.Department = g.Department
+	colleague.Wire()
+	if colleague.Employee.DepartmentID != g.Employee.DepartmentID {
+		panic("shared department did not rewire")
+	}
+	fmt.Printf("%s joins the same department\n", colleague.Employee.Name)
 }
