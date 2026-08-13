@@ -3,6 +3,8 @@
 package fixture
 
 import (
+	"sync/atomic"
+
 	"github.com/brianvoe/gofakeit/v7"
 	"github.com/google/uuid"
 
@@ -24,6 +26,41 @@ func Article(setters ...func(m *model.Article)) model.Article {
 	return m
 }
 
+func Company(setters ...func(m *model.Company)) model.Company {
+	m := model.Company{
+		ID:   gofakeit.Int64(),
+		Name: gofakeit.Name(),
+	}
+	for _, s := range setters {
+		s(&m)
+	}
+	return m
+}
+
+func Department(setters ...func(m *model.Department)) model.Department {
+	m := model.Department{
+		ID:        gofakeit.Int64(),
+		CompanyID: gofakeit.Int64(),
+		Name:      gofakeit.Name(),
+	}
+	for _, s := range setters {
+		s(&m)
+	}
+	return m
+}
+
+func Employee(setters ...func(m *model.Employee)) model.Employee {
+	m := model.Employee{
+		ID:           gofakeit.Int64(),
+		DepartmentID: gofakeit.Int64(),
+		Name:         gofakeit.Name(),
+	}
+	for _, s := range setters {
+		s(&m)
+	}
+	return m
+}
+
 func User(setters ...func(m *model.User)) model.User {
 	m := model.User{
 		ID:        gofakeit.Int64(),
@@ -36,6 +73,80 @@ func User(setters ...func(m *model.User)) model.User {
 		s(&m)
 	}
 	return m
+}
+
+// nextPK hands out process-unique integer primary keys, so records from
+// different graphs can coexist in one database without colliding.
+var nextPK atomic.Int64
+
+// DepartmentGraph bundles Department with every record it needs to exist.
+// Fields are declared in foreign-key insertion order.
+type DepartmentGraph struct {
+	Company    model.Company
+	Department model.Department
+}
+
+// NewDepartmentGraph builds the graph with consistent foreign keys.
+func NewDepartmentGraph(setters ...func(g *DepartmentGraph)) DepartmentGraph {
+	g := DepartmentGraph{
+		Company:    Company(),
+		Department: Department(),
+	}
+	g.Company.ID = int64(nextPK.Add(1))
+	g.Department.ID = int64(nextPK.Add(1))
+	for _, s := range setters {
+		s(&g)
+	}
+	g.Wire()
+	return g
+}
+
+// Wire rewrites every foreign key from the current parents' primary keys.
+// Call it again after replacing a record so the links follow.
+func (g *DepartmentGraph) Wire() {
+	g.Department.CompanyID = g.Company.ID
+}
+
+// Records returns the graph in foreign-key insertion order.
+func (g *DepartmentGraph) Records() []any {
+	return []any{&g.Company, &g.Department}
+}
+
+// EmployeeGraph bundles Employee with every record it needs to exist.
+// Fields are declared in foreign-key insertion order.
+type EmployeeGraph struct {
+	Company    model.Company
+	Department model.Department
+	Employee   model.Employee
+}
+
+// NewEmployeeGraph builds the graph with consistent foreign keys.
+func NewEmployeeGraph(setters ...func(g *EmployeeGraph)) EmployeeGraph {
+	g := EmployeeGraph{
+		Company:    Company(),
+		Department: Department(),
+		Employee:   Employee(),
+	}
+	g.Company.ID = int64(nextPK.Add(1))
+	g.Department.ID = int64(nextPK.Add(1))
+	g.Employee.ID = int64(nextPK.Add(1))
+	for _, s := range setters {
+		s(&g)
+	}
+	g.Wire()
+	return g
+}
+
+// Wire rewrites every foreign key from the current parents' primary keys.
+// Call it again after replacing a record so the links follow.
+func (g *EmployeeGraph) Wire() {
+	g.Department.CompanyID = g.Company.ID
+	g.Employee.DepartmentID = g.Department.ID
+}
+
+// Records returns the graph in foreign-key insertion order.
+func (g *EmployeeGraph) Records() []any {
+	return []any{&g.Company, &g.Department, &g.Employee}
 }
 
 func mustGenerate(template string) string {

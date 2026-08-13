@@ -155,9 +155,15 @@ func (c CLI) generate(cfg Config) int {
 
 	plans, imports := Plans(kept, pkg.PkgPath, pkg.Name)
 
+	// Graph problems never fail the run: kanna-orm owns tag enforcement, and
+	// a broken graph only costs itself, explained by a warning.
+	graphs, graphImports, gds := GraphPlans(structs, kept, pkg.PkgPath, pkg.Name)
+	c.printDiags(gds)
+	imports = slices.Compact(slices.Sorted(slices.Values(append(imports, graphImports...))))
+
 	// The destination is meant to hold hand-written files too, so what is
 	// already there decides whether this output can compile.
-	if ds := clashes(output.DeclaredNames(absDest, pkgName, defaultOutputFile), plans); len(ds) > 0 {
+	if ds := clashes(output.DeclaredNames(absDest, pkgName, defaultOutputFile), plans, graphs); len(ds) > 0 {
 		c.printDiags(ds)
 		return exit.Error
 	}
@@ -168,6 +174,7 @@ func (c CLI) generate(cfg Config) int {
 		SourcePath:  pkg.PkgPath,
 		Imports:     imports,
 		Plans:       plans,
+		Graphs:      graphs,
 	})
 	if err != nil {
 		fmt.Fprintln(c.Err, err)
@@ -243,16 +250,22 @@ func (c CLI) printDiags(ds []diag.Diag) {
 // Writing the file anyway would leave a package that no longer compiles, and the
 // error would name the generated file rather than the collision, so this is
 // refused up front.
-func clashes(declared map[string]token.Position, plans []Plan) []diag.Diag {
+func clashes(declared map[string]token.Position, plans []Plan, graphs []GraphPlan) []diag.Diag {
 	if len(declared) == 0 {
 		return nil
 	}
 
-	emitted := make([]string, 0, len(plans)+1)
+	emitted := make([]string, 0, len(plans)+2*len(graphs)+2)
 	for _, p := range plans {
 		emitted = append(emitted, p.Name)
 	}
-	if needsHelper(plans) {
+	for _, gp := range graphs {
+		emitted = append(emitted, gp.Name, gp.Ctor)
+	}
+	if needsCounter(graphs) {
+		emitted = append(emitted, "nextPK")
+	}
+	if needsHelper(plans) || graphNeedsHelper(graphs) {
 		emitted = append(emitted, "mustGenerate")
 	}
 
@@ -312,6 +325,10 @@ func missingRequires(out []byte, imports []string, sourcePath, destDir string) [
 	var missing []string
 
 	for _, path := range candidates {
+		// The standard library never appears in go.mod.
+		if stdlibImport(path) {
+			continue
+		}
 		// Match against the import line actually written, so a candidate the
 		// output ended up not needing is never reported.
 		if provided(mods, path) || !bytes.Contains(out, []byte(strconv.Quote(path))) {

@@ -56,3 +56,34 @@ type Article struct {
 type Internal struct {
 	Token string
 }
+
+// The structs below carry orm relations, which is what turns fixtures into
+// graphs: a //kanna:table struct whose belongs_to keys cannot be NULL gets a
+// New<Name>Graph constructor bundling everything it needs to exist.
+
+//kanna:table
+type Company struct {
+	ID   int64
+	Name string
+}
+
+//kanna:table
+type Department struct {
+	ID        int64
+	CompanyID int64
+	Company   *Company `orm:"belongs_to,foreign_key:company_id"`
+	Name      string
+}
+
+//kanna:table
+type Employee struct {
+	ID           int64
+	DepartmentID int64
+	Department   *Department `orm:"belongs_to,foreign_key:department_id"`
+
+	// An optional relation — a nullable foreign key — stays out of the graph.
+	ManagerID *int64
+	Manager   *Employee `orm:"belongs_to,foreign_key:manager_id"`
+
+	Name string
+}

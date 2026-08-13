@@ -707,3 +707,143 @@ func TestRunRefusesHandWrittenOutput(t *testing.T) {
 		t.Errorf("Run() = %d, stderr = %q", code, stderr)
 	}
 }
+
+func TestRunGenerateGraphs(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/relmodel", "-destination", dest)
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	got := readGenerated(t, dest)
+
+	for _, want := range []string{
+		// The chain graph: counter-assigned integer keys, wires in order.
+		"type EmployeeGraph struct {",
+		"func NewEmployeeGraph(setters ...func(g *EmployeeGraph)) EmployeeGraph {",
+		"g.Company.ID = int64(nextPK.Add(1))",
+		"g.Department.CompanyID = g.Company.ID",
+		"g.Employee.DepartmentID = g.Department.ID",
+		"return []any{&g.Company, &g.Department, &g.Employee}",
+		// Two parents of one table: string keys become UUIDs so they stay
+		// unique across graphs, and Records drops a record shared by
+		// assignment.
+		"type PostGraph struct {",
+		"g.Author.ID = gofakeit.UUID()",
+		"g.Editor.ID = gofakeit.UUID()",
+		"if g.Editor.ID != g.Author.ID {",
+		"g.Post.AuthorID = g.Author.ID",
+		// The counter and its import appear exactly because a graph needs them.
+		"var nextPK atomic.Int64",
+		"\"sync/atomic\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file does not contain %q", want)
+		}
+	}
+
+	// The optional Manager edge stays out: no node, no wire.
+	if strings.Contains(got, "Manager ") || strings.Contains(got, "ManagerID =") {
+		t.Errorf("generated file wires the optional Manager relation:\n%s", got)
+	}
+}
+
+func TestRunGenerateGraphSkippedWhenNodeExcluded(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/relmodel", "-destination", dest, "-exclude", "Company")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	got := readGenerated(t, dest)
+	if strings.Contains(got, "DepartmentGraph") || strings.Contains(got, "EmployeeGraph") {
+		t.Errorf("graphs needing the excluded Company were generated:\n%s", got)
+	}
+	if !strings.Contains(got, "PostGraph") {
+		t.Errorf("PostGraph should survive the Company exclusion:\n%s", got)
+	}
+	if !strings.Contains(stderr, "has no fixture function") {
+		t.Errorf("stderr does not explain the skipped graphs: %s", stderr)
+	}
+}
+
+// A malformed orm tag must not cost the fixtures: kanna-orm owns tag
+// enforcement, so here it reduces to a warning and the run stays green.
+func TestRunGenerateGraphMalformedTagWarnsOnly(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/badtags", "-destination", dest)
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	got := readGenerated(t, dest)
+	for _, want := range []string{"func Widget(", "func Plain("} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file does not contain %q", want)
+		}
+	}
+	if !strings.Contains(stderr, "unknown option") {
+		t.Errorf("stderr does not carry the tag warning: %s", stderr)
+	}
+	if strings.Contains(stderr, "error:") {
+		t.Errorf("a tag problem escalated to an error: %s", stderr)
+	}
+}
+
+// A struct whose fixture already owns the graph's name costs the graph, not
+// the run.
+func TestRunGenerateGraphNameTaken(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/collide", "-destination", dest)
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	got := readGenerated(t, dest)
+	if !strings.Contains(got, "func DepartmentGraph(") {
+		t.Error("the fixture for the DepartmentGraph struct is missing")
+	}
+	if strings.Contains(got, "NewDepartmentGraph") {
+		t.Error("the colliding graph was generated anyway")
+	}
+	if !strings.Contains(stderr, "already declared in the generated file") {
+		t.Errorf("stderr does not explain the skipped graph: %s", stderr)
+	}
+}
+
+// Integer keys too narrow for the counter would wrap it, so they stay off it:
+// unique within a graph through the regeneration loop, and documented as
+// nothing more.
+func TestRunGenerateGraphNarrowKeysStayOffCounter(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/narrowkey", "-destination", dest)
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	got := readGenerated(t, dest)
+	if strings.Contains(got, "uint8(nextPK") {
+		t.Error("a uint8 key was put on the counter, which wraps at 256")
+	}
+	for _, want := range []string{
+		"g.Stub.ID = int64(nextPK.Add(1))",
+		"for g.Beta.ID == g.Alpha.ID {",
+		"g.Beta.ID = gofakeit.Uint8()",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file does not contain %q", want)
+		}
+	}
+}
