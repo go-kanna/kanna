@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # One grouped PR across every module in the workspace, so a dependency shared
+  # between modules (the database drivers) moves everywhere at once.
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /examples/*
+      - /orm/integration
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
