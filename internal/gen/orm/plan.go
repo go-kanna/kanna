@@ -225,7 +225,7 @@ func buildField(f ir.Field, col *relation.ColumnTag, hasTag bool) (Field, bool) 
 	if col.Skip {
 		return Field{}, false
 	}
-	if !hasTag && relationShape(f.Type) {
+	if !hasTag && relation.RelationShape(f.Type) {
 		return Field{}, false
 	}
 
@@ -249,50 +249,6 @@ func buildField(f ir.Field, col *relation.ColumnTag, hasTag bool) (Field, bool) 
 		UpdatedAt:  col.UpdatedAt || (!hasTag && f.Name == "UpdatedAt"),
 		Pos:        f.Pos,
 	}, true
-}
-
-// relationShape reports whether an untagged field's type looks like a
-// relation rather than a column: a slice of structs or a pointer to one,
-// unless the struct itself reads as a column.
-func relationShape(t types.Type) bool {
-	core := t
-	if elem, isSlice := relation.SliceElem(core); isSlice {
-		core = elem
-	} else if elem, isPtr := relation.PointerElem(core); isPtr {
-		core = elem
-	} else {
-		return false
-	}
-	if elem, isPtr := relation.PointerElem(core); isPtr {
-		core = elem
-	}
-	named, ok := relation.StructNamed(core)
-	return ok && !columnLike(named)
-}
-
-// columnLike reports whether a struct-kind named type still reads as a
-// column: time.Time, or anything carrying a Scan method for the driver to
-// hand a value through.
-func columnLike(named *types.Named) bool {
-	if obj := named.Obj(); obj.Name() == "Time" && obj.Pkg() != nil && obj.Pkg().Path() == "time" {
-		return true
-	}
-	for m := range types.NewMethodSet(types.NewPointer(named)).Methods() {
-		sig, ok := m.Obj().Type().(*types.Signature)
-		if !ok || m.Obj().Name() != "Scan" || sig.Params().Len() != 1 || sig.Results().Len() != 1 {
-			continue
-		}
-		// The sql.Scanner contract exactly: Scan(any) error. Anything else
-		// named Scan is not something database/sql can hand a value to.
-		param, isInterface := sig.Params().At(0).Type().Underlying().(*types.Interface)
-		if !isInterface || !param.Empty() {
-			continue
-		}
-		if types.Identical(sig.Results().At(0).Type(), types.Universe.Lookup("error").Type()) {
-			return true
-		}
-	}
-	return false
 }
 
 func buildRelation(s ir.Struct, f ir.Field, rel *relation.RelationTag, srcPkg *types.Package) (*Relation, []diag.Diag) {
