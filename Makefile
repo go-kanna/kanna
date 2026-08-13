@@ -6,15 +6,17 @@ GENERATORS = di fixture i18n mapper orm
 
 .PHONY: test
 test:
-	go test ./... -race
+	go test ./... -race -coverprofile=coverage.out -covermode=atomic
 
 # DB-backed integration tests for the orm runtime live in their own module
 # (orm/integration) so the root module stays free of database drivers. They expect
 # the containers from orm/integration/compose.yaml:
 #   docker compose -f orm/integration/compose.yaml up -d --wait
+# The profile targets the root module's orm packages via -coverpkg: the tests
+# live in their own module, so without it the profile would cover nothing.
 .PHONY: test-integration
 test-integration:
-	cd orm/integration && go test ./... -race
+	cd orm/integration && go test ./... -race -coverprofile=coverage.out -covermode=atomic -coverpkg=github.com/go-kanna/kanna/orm/...
 
 # Lint every module in the workspace. go.work is the source of truth, so a new
 # module (an example, a nested test module) is covered the moment it joins.

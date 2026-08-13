@@ -1,5 +1,7 @@
 # kanna
 
+[![codecov](https://codecov.io/gh/go-kanna/kanna/graph/badge.svg)](https://codecov.io/gh/go-kanna/kanna)
+
 Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, i18n. Each
 works on its own and emits plain Go with no runtime reflection.
 
