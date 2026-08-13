@@ -1,12 +1,18 @@
-package orm
+// Package relation holds the interpretation of orm tags that more than one
+// generator relies on: the tag grammar, the mechanical name conversion, and
+// the primary-key rule. kanna-orm consumes it for query generation and
+// kanna-fixture for foreign-key-consistent fixtures, so the rules cannot
+// drift apart. The relation graph itself (traversal order, cycle detection)
+// arrives with its first consumer.
+package relation
 
 import (
 	"fmt"
 	"strings"
 )
 
-// tagKey is the struct tag every kanna-orm annotation lives under.
-const tagKey = "orm"
+// TagKey is the struct tag every kanna-orm annotation lives under.
+const TagKey = "orm"
 
 // relationKinds are the reserved words that make an orm tag a relation. A tag
 // whose first element is anything else names a column.
@@ -17,9 +23,9 @@ var relationKinds = map[string]bool{
 	"many_to_many": true,
 }
 
-// columnTag is the parsed form of an orm tag on a column field. The zero value
+// ColumnTag is the parsed form of an orm tag on a column field. The zero value
 // stands for an untagged field: everything inferred.
-type columnTag struct {
+type ColumnTag struct {
 	Column     string // explicit column name; empty means infer from the field name
 	Skip       bool   // orm:"-"
 	PrimaryKey bool
@@ -27,21 +33,21 @@ type columnTag struct {
 	UpdatedAt  bool
 }
 
-// relationTag is the parsed form of an orm tag on a relation field.
-type relationTag struct {
+// RelationTag is the parsed form of an orm tag on a relation field.
+type RelationTag struct {
 	Kind       string
 	ForeignKey string
 	JoinTable  string // many_to_many only
 	References string // many_to_many only
 }
 
-// parseTag interprets one orm tag value. Exactly one of the returned structs
+// ParseTag interprets one orm tag value. Exactly one of the returned structs
 // is non-nil when errs is empty. Every malformed element is reported with its
 // exact spelling, because a typo silently ignored is a column or relation
 // silently misconfigured.
-func parseTag(value string) (*columnTag, *relationTag, []string) {
+func ParseTag(value string) (*ColumnTag, *RelationTag, []string) {
 	if value == "-" {
-		return &columnTag{Skip: true}, nil, nil
+		return &ColumnTag{Skip: true}, nil, nil
 	}
 
 	parts := strings.Split(value, ",")
@@ -53,8 +59,8 @@ func parseTag(value string) (*columnTag, *relationTag, []string) {
 	return col, nil, errs
 }
 
-func parseColumnTag(name string, opts []string) (*columnTag, []string) {
-	col := columnTag{Column: name}
+func parseColumnTag(name string, opts []string) (*ColumnTag, []string) {
+	col := ColumnTag{Column: name}
 	var errs []string
 
 	if name == "-" {
@@ -79,8 +85,8 @@ func parseColumnTag(name string, opts []string) (*columnTag, []string) {
 	return &col, errs
 }
 
-func parseRelationTag(kind string, opts []string) (*relationTag, []string) {
-	rel := relationTag{Kind: kind}
+func parseRelationTag(kind string, opts []string) (*RelationTag, []string) {
+	rel := RelationTag{Kind: kind}
 	var errs []string
 
 	seen := make(map[string]bool, len(opts))

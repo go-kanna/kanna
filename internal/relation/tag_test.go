@@ -1,10 +1,10 @@
-package orm_test
+package relation_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/go-kanna/kanna/internal/gen/orm"
+	"github.com/go-kanna/kanna/internal/relation"
 )
 
 func TestParseTagColumns(t *testing.T) {
@@ -12,22 +12,22 @@ func TestParseTagColumns(t *testing.T) {
 
 	tests := []struct {
 		value string
-		want  orm.ColumnTag
+		want  relation.ColumnTag
 	}{
-		{"email_address", orm.ColumnTag{Column: "email_address"}},
-		{"", orm.ColumnTag{}},
-		{"-", orm.ColumnTag{Skip: true}},
-		{",primary_key", orm.ColumnTag{PrimaryKey: true}},
-		{"uid,primary_key", orm.ColumnTag{Column: "uid", PrimaryKey: true}},
-		{",created_at", orm.ColumnTag{CreatedAt: true}},
-		{",updated_at", orm.ColumnTag{UpdatedAt: true}},
+		{"email_address", relation.ColumnTag{Column: "email_address"}},
+		{"", relation.ColumnTag{}},
+		{"-", relation.ColumnTag{Skip: true}},
+		{",primary_key", relation.ColumnTag{PrimaryKey: true}},
+		{"uid,primary_key", relation.ColumnTag{Column: "uid", PrimaryKey: true}},
+		{",created_at", relation.ColumnTag{CreatedAt: true}},
+		{",updated_at", relation.ColumnTag{UpdatedAt: true}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.value, func(t *testing.T) {
 			t.Parallel()
 
-			col, rel, errs := orm.ParseTag(tt.value)
+			col, rel, errs := relation.ParseTag(tt.value)
 			if len(errs) != 0 {
 				t.Fatalf("errs = %v", errs)
 			}
@@ -46,14 +46,14 @@ func TestParseTagRelations(t *testing.T) {
 
 	tests := []struct {
 		value string
-		want  orm.RelationTag
+		want  relation.RelationTag
 	}{
-		{"has_many,foreign_key:user_id", orm.RelationTag{Kind: "has_many", ForeignKey: "user_id"}},
-		{"has_one,foreign_key:user_id", orm.RelationTag{Kind: "has_one", ForeignKey: "user_id"}},
-		{"belongs_to,foreign_key:user_id", orm.RelationTag{Kind: "belongs_to", ForeignKey: "user_id"}},
+		{"has_many,foreign_key:user_id", relation.RelationTag{Kind: "has_many", ForeignKey: "user_id"}},
+		{"has_one,foreign_key:user_id", relation.RelationTag{Kind: "has_one", ForeignKey: "user_id"}},
+		{"belongs_to,foreign_key:user_id", relation.RelationTag{Kind: "belongs_to", ForeignKey: "user_id"}},
 		{
 			"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_id",
-			orm.RelationTag{Kind: "many_to_many", ForeignKey: "user_id", JoinTable: "user_tags", References: "tag_id"},
+			relation.RelationTag{Kind: "many_to_many", ForeignKey: "user_id", JoinTable: "user_tags", References: "tag_id"},
 		},
 	}
 
@@ -61,7 +61,7 @@ func TestParseTagRelations(t *testing.T) {
 		t.Run(tt.value, func(t *testing.T) {
 			t.Parallel()
 
-			col, rel, errs := orm.ParseTag(tt.value)
+			col, rel, errs := relation.ParseTag(tt.value)
 			if len(errs) != 0 {
 				t.Fatalf("errs = %v", errs)
 			}
@@ -100,7 +100,7 @@ func TestParseTagErrors(t *testing.T) {
 		t.Run(tt.value, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, errs := orm.ParseTag(tt.value)
+			_, _, errs := relation.ParseTag(tt.value)
 			if len(errs) == 0 {
 				t.Fatalf("expected error containing %q, got none", tt.wantErr)
 			}

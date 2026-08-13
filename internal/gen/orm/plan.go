@@ -8,6 +8,7 @@ import (
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/directive"
 	"github.com/go-kanna/kanna/internal/ir"
+	"github.com/go-kanna/kanna/internal/relation"
 )
 
 // Table is the plan for one //kanna:table struct.
@@ -126,7 +127,7 @@ func Tables(structs []ir.Struct) ([]Table, []diag.Diag) {
 // the silent alternative is a model the author believes is handled.
 func warnUntaggedUse(s ir.Struct) []diag.Diag {
 	for _, f := range s.Fields {
-		if _, ok := f.Tag.Lookup(tagKey); ok {
+		if _, ok := f.Tag.Lookup(relation.TagKey); ok {
 			return []diag.Diag{diag.Warningf(s.Pos,
 				"%s has orm tags but no //kanna:table directive, so kanna-orm ignores it", s.Name)}
 		}
@@ -165,8 +166,8 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 			continue
 		}
 
-		raw, hasTag := f.Tag.Lookup(tagKey)
-		col, rel, errs := parseTag(raw)
+		raw, hasTag := f.Tag.Lookup(relation.TagKey)
+		col, rel, errs := relation.ParseTag(raw)
 		for _, e := range errs {
 			diags = append(diags, diag.Errorf(f.Pos, "%s.%s: %s", s.Name, f.Name, e))
 		}
@@ -220,7 +221,7 @@ func parseTableArgs(args string, pos token.Position) (string, []diag.Diag) {
 // an explicit statement of what the field is, so a field that wants both a
 // custom column name and timestamp behavior says so with created_at or
 // updated_at.
-func buildField(f ir.Field, col *columnTag, hasTag bool) (Field, bool) {
+func buildField(f ir.Field, col *relation.ColumnTag, hasTag bool) (Field, bool) {
 	if col.Skip {
 		return Field{}, false
 	}
@@ -230,7 +231,7 @@ func buildField(f ir.Field, col *columnTag, hasTag bool) (Field, bool) {
 
 	column := col.Column
 	if column == "" {
-		column = camelToSnake(f.Name)
+		column = relation.SnakeCase(f.Name)
 	}
 
 	basic, isBasic := f.Type.Underlying().(*types.Basic)
@@ -255,17 +256,17 @@ func buildField(f ir.Field, col *columnTag, hasTag bool) (Field, bool) {
 // unless the struct itself reads as a column.
 func relationShape(t types.Type) bool {
 	core := t
-	if elem, isSlice := sliceElem(core); isSlice {
+	if elem, isSlice := relation.SliceElem(core); isSlice {
 		core = elem
-	} else if elem, isPtr := pointerElem(core); isPtr {
+	} else if elem, isPtr := relation.PointerElem(core); isPtr {
 		core = elem
 	} else {
 		return false
 	}
-	if elem, isPtr := pointerElem(core); isPtr {
+	if elem, isPtr := relation.PointerElem(core); isPtr {
 		core = elem
 	}
-	named, ok := structNamed(core)
+	named, ok := relation.StructNamed(core)
 	return ok && !columnLike(named)
 }
 
@@ -294,18 +295,18 @@ func columnLike(named *types.Named) bool {
 	return false
 }
 
-func buildRelation(s ir.Struct, f ir.Field, rel *relationTag, srcPkg *types.Package) (*Relation, []diag.Diag) {
+func buildRelation(s ir.Struct, f ir.Field, rel *relation.RelationTag, srcPkg *types.Package) (*Relation, []diag.Diag) {
 	core := f.Type
-	elem, isSlice := sliceElem(core)
+	elem, isSlice := relation.SliceElem(core)
 	if isSlice {
 		core = elem
 	}
-	elem, isPointer := pointerElem(core)
+	elem, isPointer := relation.PointerElem(core)
 	if isPointer {
 		core = elem
 	}
 
-	named, ok := structNamed(core)
+	named, ok := relation.StructNamed(core)
 	if !ok {
 		return nil, []diag.Diag{diag.Errorf(f.Pos,
 			"%s.%s: a %s field must be a struct, a pointer to one, or a slice of them", s.Name, f.Name, rel.Kind)}
@@ -351,37 +352,32 @@ func buildRelation(s ir.Struct, f ir.Field, rel *relationTag, srcPkg *types.Pack
 	}, nil
 }
 
-// resolvePK settles the primary key: an explicit primary_key option wins, a
-// field named ID is the fallback, anything else is an error. Two explicit
-// keys are two mistakes with positions, not a silent pick.
+// resolvePK settles the primary key through the shared rule: an explicit
+// primary_key option wins, a field named ID is the fallback, anything else is
+// an error. Two explicit keys are two mistakes with positions, not a silent
+// pick.
 func resolvePK(table *Table, s ir.Struct) []diag.Diag {
-	var explicit []int
+	candidates := make([]relation.PKCandidate, len(table.Fields))
 	for i, f := range table.Fields {
-		if f.PrimaryKey {
-			explicit = append(explicit, i)
-		}
+		candidates[i] = relation.PKCandidate{Name: f.Name, Explicit: f.PrimaryKey}
 	}
 
-	switch len(explicit) {
-	case 1:
-		return nil
-	case 0:
-		for i, f := range table.Fields {
-			if f.Name == "ID" {
-				table.Fields[i].PrimaryKey = true
-				return nil
-			}
-		}
-		return []diag.Diag{diag.Errorf(s.Pos,
-			"%s has no primary key; name a field ID or tag one with orm:\",primary_key\"", s.Name)}
-	default:
-		diags := make([]diag.Diag, 0, len(explicit))
-		for _, i := range explicit {
+	idx, dupes := relation.PickPrimaryKey(candidates)
+	if len(dupes) > 0 {
+		diags := make([]diag.Diag, 0, len(dupes))
+		for _, i := range dupes {
 			diags = append(diags, diag.Errorf(table.Fields[i].Pos,
 				"%s has more than one primary_key", s.Name))
 		}
 		return diags
 	}
+	if idx < 0 {
+		return []diag.Diag{diag.Errorf(s.Pos,
+			"%s has no primary key; name a field ID or tag one with orm:\",primary_key\"", s.Name)}
+	}
+
+	table.Fields[idx].PrimaryKey = true
+	return nil
 }
 
 // checkTimestamps requires timestamp fields to be time.Time or *time.Time,
@@ -568,29 +564,4 @@ func columnField(t Table, column string) *Field {
 		}
 	}
 	return nil
-}
-
-func sliceElem(t types.Type) (types.Type, bool) {
-	s, ok := t.Underlying().(*types.Slice)
-	if !ok {
-		return nil, false
-	}
-	return s.Elem(), true
-}
-
-func pointerElem(t types.Type) (types.Type, bool) {
-	p, ok := t.Underlying().(*types.Pointer)
-	if !ok {
-		return nil, false
-	}
-	return p.Elem(), true
-}
-
-func structNamed(t types.Type) (*types.Named, bool) {
-	named, ok := types.Unalias(t).(*types.Named)
-	if !ok {
-		return nil, false
-	}
-	_, ok = named.Underlying().(*types.Struct)
-	return named, ok
 }
