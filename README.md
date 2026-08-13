@@ -4,27 +4,13 @@
 [![codecov](https://codecov.io/gh/go-kanna/kanna/graph/badge.svg)](https://codecov.io/gh/go-kanna/kanna)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-kanna/kanna.svg)](https://pkg.go.dev/github.com/go-kanna/kanna)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/tag/go-kanna/kanna?label=release&sort=semver)](https://github.com/go-kanna/kanna/tags)
 
 Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, i18n. Each
 works on its own and emits plain Go with no runtime reflection.
 
 Your structs are the source of truth. Point a generator at a package and it writes the code you would otherwise write by
 hand, so the output stays readable, debuggable, and free of anything to learn at runtime.
-
-## Status
-
-kanna is being assembled from generators that already exist as standalone tools. Each is ported onto a shared scanning
-layer as it lands.
-
-| Generator       | What it does                                 | Status    |
-|-----------------|----------------------------------------------|-----------|
-| `kanna-di`      | dependency-injection constructors            | available |
-| `kanna-fixture` | test fixtures from model structs             | available |
-| `kanna-mapper`  | struct-to-struct mapping                     | available |
-| `kanna-orm`     | query helpers from model structs             | available |
-| `kanna-i18n`    | typed message constructors from locale files | available |
-
-Nothing is released yet, so import paths and flags may still move.
 
 ## kanna-di
 
