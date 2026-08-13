@@ -318,22 +318,22 @@ func resolvePK(table *Table, s ir.Struct) []diag.Diag {
 		candidates[i] = relation.PKCandidate{Name: f.Name, Explicit: f.PrimaryKey}
 	}
 
-	idx, dupes := relation.PickPrimaryKey(candidates)
-	if len(dupes) > 0 {
-		diags := make([]diag.Diag, 0, len(dupes))
-		for _, i := range dupes {
+	picks := relation.PickPrimaryKey(candidates)
+	switch len(picks) {
+	case 1:
+		table.Fields[picks[0]].PrimaryKey = true
+		return nil
+	case 0:
+		return []diag.Diag{diag.Errorf(s.Pos,
+			"%s has no primary key; name a field ID or tag one with orm:\",primary_key\"", s.Name)}
+	default:
+		diags := make([]diag.Diag, 0, len(picks))
+		for _, i := range picks {
 			diags = append(diags, diag.Errorf(table.Fields[i].Pos,
 				"%s has more than one primary_key", s.Name))
 		}
 		return diags
 	}
-	if idx < 0 {
-		return []diag.Diag{diag.Errorf(s.Pos,
-			"%s has no primary key; name a field ID or tag one with orm:\",primary_key\"", s.Name)}
-	}
-
-	table.Fields[idx].PrimaryKey = true
-	return nil
 }
 
 // checkTimestamps requires timestamp fields to be time.Time or *time.Time,

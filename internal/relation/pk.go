@@ -7,29 +7,25 @@ type PKCandidate struct {
 }
 
 // PickPrimaryKey applies the shared primary-key rule: exactly one explicit
-// primary_key wins, and a field named ID is the fallback. It returns the
-// chosen index and nil; -1 and nil when nothing qualifies; or -1 and every
-// explicit index when several fields claim the key, so the caller can report
-// each with its position instead of silently picking one.
-func PickPrimaryKey(fields []PKCandidate) (int, []int) {
+// primary_key wins, and a field named ID is the fallback. One index is the
+// pick; several are the explicitly tagged fields, returned whole so the
+// caller can report each with its position instead of silently choosing;
+// none means no field qualifies.
+func PickPrimaryKey(fields []PKCandidate) []int {
 	var explicit []int
 	for i, f := range fields {
 		if f.Explicit {
 			explicit = append(explicit, i)
 		}
 	}
-
-	switch len(explicit) {
-	case 1:
-		return explicit[0], nil
-	case 0:
-		for i, f := range fields {
-			if f.Name == "ID" {
-				return i, nil
-			}
-		}
-		return -1, nil
-	default:
-		return -1, explicit
+	if len(explicit) > 0 {
+		return explicit
 	}
+
+	for i, f := range fields {
+		if f.Name == "ID" {
+			return []int{i}
+		}
+	}
+	return nil
 }

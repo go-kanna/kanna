@@ -11,25 +11,24 @@ func TestPickPrimaryKey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		fields    []relation.PKCandidate
-		wantIdx   int
-		wantDupes []int
+		name   string
+		fields []relation.PKCandidate
+		want   []int
 	}{
 		{
-			name:    "explicit wins over ID",
-			fields:  []relation.PKCandidate{{Name: "ID"}, {Name: "UID", Explicit: true}},
-			wantIdx: 1,
+			name:   "explicit wins over ID",
+			fields: []relation.PKCandidate{{Name: "ID"}, {Name: "UID", Explicit: true}},
+			want:   []int{1},
 		},
 		{
-			name:    "ID is the fallback",
-			fields:  []relation.PKCandidate{{Name: "Name"}, {Name: "ID"}},
-			wantIdx: 1,
+			name:   "ID is the fallback",
+			fields: []relation.PKCandidate{{Name: "Name"}, {Name: "ID"}},
+			want:   []int{1},
 		},
 		{
-			name:    "nothing qualifies",
-			fields:  []relation.PKCandidate{{Name: "Name"}, {Name: "Email"}},
-			wantIdx: -1,
+			name:   "nothing qualifies",
+			fields: []relation.PKCandidate{{Name: "Name"}, {Name: "Email"}},
+			want:   nil,
 		},
 		{
 			name: "several explicit keys are returned, not picked from",
@@ -38,8 +37,7 @@ func TestPickPrimaryKey(t *testing.T) {
 				{Name: "B"},
 				{Name: "C", Explicit: true},
 			},
-			wantIdx:   -1,
-			wantDupes: []int{0, 2},
+			want: []int{0, 2},
 		},
 	}
 
@@ -47,12 +45,9 @@ func TestPickPrimaryKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			idx, dupes := relation.PickPrimaryKey(tt.fields)
-			if idx != tt.wantIdx {
-				t.Errorf("idx = %d, want %d", idx, tt.wantIdx)
-			}
-			if !slices.Equal(dupes, tt.wantDupes) {
-				t.Errorf("dupes = %v, want %v", dupes, tt.wantDupes)
+			got := relation.PickPrimaryKey(tt.fields)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("PickPrimaryKey() = %v, want %v", got, tt.want)
 			}
 		})
 	}
