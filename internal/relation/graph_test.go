@@ -100,8 +100,8 @@ func TestBuildGraphsChain(t *testing.T) {
 		if g.Nodes[i].Table != want || g.Nodes[i].Field != want {
 			t.Errorf("node %d = %+v, want table and field %q", i, g.Nodes[i], want)
 		}
-		if g.Nodes[i].PKField != "ID" || !g.Nodes[i].PKIsInt {
-			t.Errorf("node %d key = %+v, want integer ID", i, g.Nodes[i])
+		if g.Nodes[i].PKField != "ID" {
+			t.Errorf("node %d key = %+v, want ID", i, g.Nodes[i])
 		}
 	}
 
@@ -154,9 +154,6 @@ func TestBuildGraphsTwoParentsOfOneTable(t *testing.T) {
 			t.Errorf("fields = %v, want %v", fields, want)
 			break
 		}
-	}
-	if g.Nodes[0].PKIsInt {
-		t.Error("string primary key reported as integer")
 	}
 	if len(g.Wires) != 2 {
 		t.Fatalf("wires = %+v, want 2", g.Wires)
@@ -302,4 +299,46 @@ type Post struct {
 	Editor   User `+"`orm:\"belongs_to,foreign_key:editor_id\"`"+`
 }
 `, "primary key type is not comparable")
+}
+
+// A foreign key whose type disagrees with the parent's primary key would make
+// the generated Wire assignment fail to compile far from the tag.
+func TestBuildGraphsForeignKeyTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	wantGraphError(t, `package model
+
+//kanna:table
+type Company struct {
+	ID int64
+}
+
+//kanna:table
+type Department struct {
+	ID        int64
+	CompanyID string
+	Company   *Company `+"`orm:\"belongs_to,foreign_key:company_id\"`"+`
+}
+`, "has type string, but the Company primary key is int64")
+}
+
+// The graph type declares Wire and Records, so a relation field taking either
+// name cannot become a graph field.
+func TestBuildGraphsReservedFieldName(t *testing.T) {
+	t.Parallel()
+
+	wantGraphError(t, `package model
+
+//kanna:table
+type Company struct {
+	ID int64
+}
+
+//kanna:table
+type Department struct {
+	ID        int64
+	CompanyID int64
+	Wire      *Company `+"`orm:\"belongs_to,foreign_key:company_id\"`"+`
+}
+`, "collides with the generated method")
 }

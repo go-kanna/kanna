@@ -26,7 +26,6 @@ type GraphNode struct {
 	Table   string // struct name
 	Field   string // name the node goes by in the graph, unique within it
 	PKField string // the table's primary-key Go field
-	PKIsInt bool   // the key's underlying type is an integer
 }
 
 // GraphWire is one foreign-key assignment: node From's FKField takes node
@@ -41,7 +40,7 @@ type graphTable struct {
 	name         string
 	pos          token.Position
 	pkField      string
-	pkIsInt      bool
+	pkType       types.Type
 	pkComparable bool
 	parents      []graphParent
 	broken       bool // carries error diagnostics; graphs touching it are skipped
@@ -53,7 +52,8 @@ type graphParent struct {
 	field    string // relation field name
 	target   string // target struct name
 	fkField  string // Go field holding the foreign key
-	required bool   // the foreign-key field is not a pointer
+	fkType   types.Type
+	required bool // the foreign-key field is not a pointer
 	pos      token.Position
 }
 
@@ -94,7 +94,7 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 		}
 
 		t := graphTable{name: s.Name, pos: s.Pos}
-		var columns []ir.Field
+		var columns []column
 
 		for _, f := range s.Fields {
 			if !f.Exported || f.Embedded {
@@ -128,24 +128,21 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 			if col.Skip || (!hasTag && RelationShape(f.Type)) {
 				continue
 			}
-			columns = append(columns, f)
+			name := col.Column
+			if name == "" {
+				name = SnakeCase(f.Name)
+			}
+			columns = append(columns, column{field: f, name: name, explicitPK: col.PrimaryKey})
 		}
 
 		candidates := make([]PKCandidate, len(columns))
-		for i, f := range columns {
-			explicit := false
-			if raw, ok := f.Tag.Lookup(TagKey); ok {
-				if col, _, errs := ParseTag(raw); len(errs) == 0 && col != nil {
-					explicit = col.PrimaryKey
-				}
-			}
-			candidates[i] = PKCandidate{Name: f.Name, Explicit: explicit}
+		for i, c := range columns {
+			candidates[i] = PKCandidate{Name: c.field.Name, Explicit: c.explicitPK}
 		}
 		if picks := PickPrimaryKey(candidates); len(picks) == 1 {
-			pk := columns[picks[0]]
+			pk := columns[picks[0]].field
 			t.pkField = pk.Name
-			basic, isBasic := pk.Type.Underlying().(*types.Basic)
-			t.pkIsInt = isBasic && basic.Info()&types.IsInteger != 0
+			t.pkType = pk.Type
 			t.pkComparable = types.Comparable(pk.Type)
 		}
 
@@ -153,15 +150,16 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 		// where the column model is at hand.
 		for i := range t.parents {
 			p := &t.parents[i]
-			field, fieldType, found := columnFieldOf(columns, p.fkField)
+			c, found := columnNamed(columns, p.fkField)
 			if !found {
 				diags = append(diags, diag.Errorf(p.pos,
 					"%s.%s: foreign_key %q is not a column of %s", s.Name, p.field, p.fkField, s.Name))
 				t.broken = true
 				continue
 			}
-			p.fkField = field
-			_, isPtr := PointerElem(fieldType)
+			p.fkField = c.field.Name
+			p.fkType = c.field.Type
+			_, isPtr := PointerElem(c.field.Type)
 			p.required = !isPtr
 		}
 
@@ -198,24 +196,21 @@ func parentEdge(s ir.Struct, f ir.Field, rel *RelationTag) (*graphParent, []diag
 	}, nil
 }
 
-// columnFieldOf finds the field whose column name — explicit tag or inferred
-// snake_case — matches column.
-func columnFieldOf(fields []ir.Field, column string) (string, types.Type, bool) {
-	for _, f := range fields {
-		name := ""
-		if raw, ok := f.Tag.Lookup(TagKey); ok {
-			if col, _, errs := ParseTag(raw); len(errs) == 0 && col != nil {
-				name = col.Column
-			}
-		}
-		if name == "" {
-			name = SnakeCase(f.Name)
-		}
-		if name == column {
-			return f.Name, f.Type, true
+// column is one column-backed field with its resolved column name.
+type column struct {
+	field      ir.Field
+	name       string
+	explicitPK bool
+}
+
+// columnNamed finds the column carrying the given column name.
+func columnNamed(columns []column, name string) (column, bool) {
+	for _, c := range columns {
+		if c.name == name {
+			return c, true
 		}
 	}
-	return "", nil, false
+	return column{}, false
 }
 
 // graphBuilder accumulates one graph during the walk from its root.
@@ -298,6 +293,17 @@ func (b *graphBuilder) add(t graphTable, path []string) (int, bool) {
 			return 0, false
 		}
 
+		fkCore := p.fkType
+		if elem, isPtr := PointerElem(fkCore); isPtr {
+			fkCore = elem
+		}
+		if !types.Identical(fkCore, target.pkType) {
+			b.diags = append(b.diags, diag.Errorf(p.pos,
+				"%s.%s: foreign key %s.%s has type %s, but the %s primary key is %s",
+				t.name, p.field, t.name, p.fkField, typeName(p.fkType), target.name, typeName(target.pkType)))
+			return 0, false
+		}
+
 		b.onPath[p.target] = true
 		parentIdx, ok := b.add(target, append(slices.Clone(path), p.field))
 		delete(b.onPath, p.target)
@@ -307,7 +313,7 @@ func (b *graphBuilder) add(t graphTable, path []string) (int, bool) {
 		wires = append(wires, pending{fkField: p.fkField, parent: parentIdx})
 	}
 
-	b.g.Nodes = append(b.g.Nodes, GraphNode{Table: t.name, PKField: t.pkField, PKIsInt: t.pkIsInt})
+	b.g.Nodes = append(b.g.Nodes, GraphNode{Table: t.name, PKField: t.pkField})
 	b.paths = append(b.paths, path)
 	self := len(b.g.Nodes) - 1
 	for _, w := range wires {
@@ -365,6 +371,16 @@ func (b *graphBuilder) nameNodes() []diag.Diag {
 		}
 	}
 
+	// The graph type declares these methods, and a field sharing a method's
+	// name does not compile.
+	for _, n := range names {
+		if n == "Wire" || n == "Records" {
+			return []diag.Diag{diag.Errorf(b.g.Pos,
+				"%s: a graph field would be named %s, which collides with the generated method; rename the relation field",
+				b.g.Root, n)}
+		}
+	}
+
 	for i, n := range names {
 		b.g.Nodes[i].Field = n
 	}
@@ -385,17 +401,23 @@ func (b *graphBuilder) nodeName(i, depth int) string {
 // primary key is not comparable: telling shared nodes apart in Records
 // compares keys, and that comparison has to compile.
 func (b *graphBuilder) checkDuplicates() []diag.Diag {
-	byTable := make(map[string][]int)
-	for i, n := range b.g.Nodes {
-		byTable[n.Table] = append(byTable[n.Table], i)
+	counts := make(map[string]int, len(b.g.Nodes))
+	for _, n := range b.g.Nodes {
+		counts[n.Table]++
 	}
-	for table, group := range byTable {
-		if len(group) < 2 || b.tables[table].pkComparable {
+	// Walk nodes, not the map, so the same table is named on every run.
+	for _, n := range b.g.Nodes {
+		if counts[n.Table] < 2 || b.tables[n.Table].pkComparable {
 			continue
 		}
 		return []diag.Diag{diag.Errorf(b.g.Pos,
 			"%s: %s appears more than once in the graph, but its primary key type is not comparable, "+
-				"and telling shared records apart compares keys", b.g.Root, table)}
+				"and telling shared records apart compares keys", b.g.Root, n.Table)}
 	}
 	return nil
+}
+
+// typeName renders a type with package-name qualifiers, for diagnostics.
+func typeName(t types.Type) string {
+	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
 }
