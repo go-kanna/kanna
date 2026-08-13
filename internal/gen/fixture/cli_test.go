@@ -707,3 +707,66 @@ func TestRunRefusesHandWrittenOutput(t *testing.T) {
 		t.Errorf("Run() = %d, stderr = %q", code, stderr)
 	}
 }
+
+func TestRunGenerateGraphs(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/relmodel", "-destination", dest)
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	got := readGenerated(t, dest)
+
+	for _, want := range []string{
+		// The chain graph: counter-assigned integer keys, wires in order.
+		"type EmployeeGraph struct {",
+		"func NewEmployeeGraph(setters ...func(g *EmployeeGraph)) EmployeeGraph {",
+		"g.Company.ID = int64(nextPK.Add(1))",
+		"g.Department.CompanyID = g.Company.ID",
+		"g.Employee.DepartmentID = g.Department.ID",
+		"return []any{&g.Company, &g.Department, &g.Employee}",
+		// Two parents of one table: string keys regenerate until distinct,
+		// and Records drops a record shared by assignment.
+		"type PostGraph struct {",
+		"for g.Editor.ID == g.Author.ID {",
+		"if g.Editor.ID != g.Author.ID {",
+		"g.Post.AuthorID = g.Author.ID",
+		// The counter and its import appear exactly because a graph needs them.
+		"var nextPK atomic.Int64",
+		"\"sync/atomic\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file does not contain %q", want)
+		}
+	}
+
+	// The optional Manager edge stays out: no node, no wire.
+	if strings.Contains(got, "Manager ") || strings.Contains(got, "ManagerID =") {
+		t.Errorf("generated file wires the optional Manager relation:\n%s", got)
+	}
+}
+
+func TestRunGenerateGraphSkippedWhenNodeExcluded(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "fixture")
+
+	code, _, stderr := runCLI(t, "", "-source", "./testdata/relmodel", "-destination", dest, "-exclude", "Company")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	got := readGenerated(t, dest)
+	if strings.Contains(got, "DepartmentGraph") || strings.Contains(got, "EmployeeGraph") {
+		t.Errorf("graphs needing the excluded Company were generated:\n%s", got)
+	}
+	if !strings.Contains(got, "PostGraph") {
+		t.Errorf("PostGraph should survive the Company exclusion:\n%s", got)
+	}
+	if !strings.Contains(stderr, "has no fixture function") {
+		t.Errorf("stderr does not explain the skipped graphs: %s", stderr)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/format"
 	"slices"
+	"strings"
 
 	"github.com/go-kanna/kanna/internal/imports"
 )
@@ -25,6 +26,8 @@ type EmitParams struct {
 	Imports []string
 	// Plans holds the fixture bodies in output order.
 	Plans []Plan
+	// Graphs holds the graph bodies, emitted after the fixtures.
+	Graphs []GraphPlan
 }
 
 // generateHelper wraps the two-value gofakeit.Generate so template fallbacks
@@ -55,7 +58,14 @@ func Emit(p EmitParams) ([]byte, error) {
 		writePlan(&buf, p.SourceName, pl)
 	}
 
-	if needsHelper(p.Plans) {
+	if needsCounter(p.Graphs) {
+		buf.WriteString(counterDecl)
+	}
+	for _, gp := range p.Graphs {
+		writeGraph(&buf, p.SourceName, gp)
+	}
+
+	if needsHelper(p.Plans) || graphNeedsHelper(p.Graphs) {
 		buf.WriteString(generateHelper)
 	}
 
@@ -82,10 +92,14 @@ func writeImports(buf *bytes.Buffer, p EmitParams) {
 
 	buf.WriteString("\n")
 	imports.Render(buf, entries, func(e imports.Entry) int {
-		if e.Path == p.SourcePath {
+		switch {
+		case e.Path == p.SourcePath:
+			return 2
+		case !strings.Contains(strings.SplitN(e.Path, "/", 2)[0], "."):
+			return 0 // standard library
+		default:
 			return 1
 		}
-		return 0
 	})
 }
 
@@ -121,4 +135,122 @@ func writePlan(buf *bytes.Buffer, qualifier string, pl Plan) {
 	}
 
 	buf.WriteString("\tfor _, s := range setters {\n\t\ts(&m)\n\t}\n\treturn m\n}\n")
+}
+
+// counterDecl is the shared key counter, emitted once when any graph assigns
+// integer primary keys.
+const counterDecl = `
+// nextPK hands out process-unique integer primary keys, so records from
+// different graphs can coexist in one database without colliding.
+var nextPK atomic.Int64
+`
+
+// needsCounter reports whether any graph node takes its key from the counter.
+func needsCounter(graphs []GraphPlan) bool {
+	for _, gp := range graphs {
+		for _, n := range gp.Nodes {
+			if n.CounterConv != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// graphNeedsHelper reports whether any key-regeneration loop calls the
+// mustGenerate helper.
+func graphNeedsHelper(graphs []GraphPlan) bool {
+	for _, gp := range graphs {
+		for _, l := range gp.Loops {
+			if l.NeedsHelper {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeGraph(buf *bytes.Buffer, qualifier string, gp GraphPlan) {
+	root := gp.Nodes[len(gp.Nodes)-1].Type
+
+	fmt.Fprintf(buf, "\n// %s bundles %s with every record it needs to exist.\n", gp.Name, root)
+	buf.WriteString("// Fields are declared in foreign-key insertion order.\n")
+	fmt.Fprintf(buf, "type %s struct {\n", gp.Name)
+	for _, n := range gp.Nodes {
+		fmt.Fprintf(buf, "\t%s %s.%s\n", n.Field, qualifier, n.Type)
+	}
+	buf.WriteString("}\n")
+
+	fmt.Fprintf(buf, "\n// %s builds the graph with consistent foreign keys.\n", gp.Ctor)
+	fmt.Fprintf(buf, "func %s(setters ...func(g *%s)) %s {\n", gp.Ctor, gp.Name, gp.Name)
+	fmt.Fprintf(buf, "\tg := %s{\n", gp.Name)
+	for _, n := range gp.Nodes {
+		fmt.Fprintf(buf, "\t\t%s: %s(),\n", n.Field, n.Type)
+	}
+	buf.WriteString("\t}\n")
+	for _, n := range gp.Nodes {
+		if n.CounterConv != "" {
+			fmt.Fprintf(buf, "\tg.%s.%s = %s(nextPK.Add(1))\n", n.Field, n.PKField, n.CounterConv)
+		}
+	}
+	for _, l := range gp.Loops {
+		buf.WriteString("\tfor ")
+		for i, a := range l.Against {
+			if i > 0 {
+				buf.WriteString(" || ")
+			}
+			fmt.Fprintf(buf, "g.%s.%s == g.%s.%s", l.Field, l.PKField, a, l.PKField)
+		}
+		fmt.Fprintf(buf, " {\n\t\tg.%s.%s = %s\n\t}\n", l.Field, l.PKField, l.Regen)
+	}
+	buf.WriteString("\tfor _, s := range setters {\n\t\ts(&g)\n\t}\n\tg.Wire()\n\treturn g\n}\n")
+
+	buf.WriteString("\n// Wire rewrites every foreign key from the current parents' primary keys.\n")
+	buf.WriteString("// Call it again after replacing a record so the links follow.\n")
+	fmt.Fprintf(buf, "func (g *%s) Wire() {\n", gp.Name)
+	for _, w := range gp.Wires {
+		fmt.Fprintf(buf, "\tg.%s.%s = g.%s.%s\n", w.FromField, w.FKField, w.ToField, w.ToPKField)
+	}
+	buf.WriteString("}\n")
+
+	buf.WriteString("\n// Records returns the graph in foreign-key insertion order, keeping one\n")
+	buf.WriteString("// copy of records shared by assignment.\n")
+	fmt.Fprintf(buf, "func (g *%s) Records() []any {\n", gp.Name)
+	if !hasDedup(gp) {
+		buf.WriteString("\treturn []any{")
+		for i, n := range gp.Nodes {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(buf, "&g.%s", n.Field)
+		}
+		buf.WriteString("}\n}\n")
+		return
+	}
+
+	fmt.Fprintf(buf, "\trecs := make([]any, 0, %d)\n", len(gp.Nodes))
+	for _, n := range gp.Nodes {
+		if len(n.DedupAgainst) == 0 {
+			fmt.Fprintf(buf, "\trecs = append(recs, &g.%s)\n", n.Field)
+			continue
+		}
+		buf.WriteString("\tif ")
+		for i, a := range n.DedupAgainst {
+			if i > 0 {
+				buf.WriteString(" && ")
+			}
+			fmt.Fprintf(buf, "g.%s.%s != g.%s.%s", n.Field, n.PKField, a, n.PKField)
+		}
+		fmt.Fprintf(buf, " {\n\t\trecs = append(recs, &g.%s)\n\t}\n", n.Field)
+	}
+	buf.WriteString("\treturn recs\n}\n")
+}
+
+func hasDedup(gp GraphPlan) bool {
+	for _, n := range gp.Nodes {
+		if len(n.DedupAgainst) > 0 {
+			return true
+		}
+	}
+	return false
 }
