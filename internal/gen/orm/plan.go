@@ -308,10 +308,9 @@ func buildRelation(s ir.Struct, f ir.Field, rel *relation.RelationTag, srcPkg *t
 	}, nil
 }
 
-// resolvePK settles the primary key through the shared rule: an explicit
-// primary_key option wins, a field named ID is the fallback, anything else is
-// an error. Two explicit keys are two mistakes with positions, not a silent
-// pick.
+// resolvePK settles the primary key: an explicit primary_key option wins, a
+// field named ID is the fallback, anything else is an error. Two explicit
+// keys are two mistakes with positions, not a silent pick.
 func resolvePK(table *Table, s ir.Struct) []diag.Diag {
 	candidates := make([]relation.PKCandidate, len(table.Fields))
 	for i, f := range table.Fields {

@@ -1,9 +1,10 @@
 // Package relation holds the interpretation of orm tags that more than one
-// generator relies on: the tag grammar, the mechanical name conversion, and
-// the primary-key rule. kanna-orm consumes it for query generation and
-// kanna-fixture for foreign-key-consistent fixtures, so the rules cannot
-// drift apart. The relation graph itself (traversal order, cycle detection)
-// arrives with its first consumer.
+// generator relies on: the tag grammar, the classification of untagged
+// fields, the mechanical name conversion, and the primary-key rule. kanna-orm
+// consumes it for query generation; kanna-fixture is the second consumer the
+// package was extracted for, so its foreign-key-consistent fixtures will read
+// these rules rather than a copy that can drift. The relation graph itself
+// (traversal order, cycle detection) arrives with that consumer.
 package relation
 
 import (
