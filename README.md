@@ -109,12 +109,12 @@ concrete type.
 
 ### Flags
 
-| Flag              | Meaning                                                |
-|-------------------|--------------------------------------------------------|
-| `--must`          | emit `MustNew*` for every container                    |
-| `--tags <list>`   | comma-separated build tags                             |
+| Flag              | Meaning                                                       |
+|-------------------|---------------------------------------------------------------|
+| `--must`          | emit `MustNew*` for every container                           |
+| `--tags <list>`   | comma-separated build tags                                    |
 | `-check`          | verify generated files are up to date instead of writing them |
-| `-v`, `--verbose` | verbose output                                         |
+| `-v`, `--verbose` | verbose output                                                |
 
 ### Example
 
@@ -380,15 +380,15 @@ Everything else needs a converter, and the error message shows the `mapper.Regis
 
 ### Flags
 
-| Flag                   | Meaning                                                        |
-|------------------------|----------------------------------------------------------------|
-| `-types <SRC:DST>`     | pairs to map, comma-separated; repeatable. `*` marks a pointer |
-| `-converters <pkg>`  | package holding the `mapper.Register` calls; repeatable          |
-| `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                     |
-| `-output <path>`       | output directory, or a file path ending in `.go`               |
-| `-direction <dir>`     | `both` (default), `to`, or `from`                              |
-| `-package <name>`      | output package name (default: `$GOPACKAGE`)                    |
-| `-check`               | verify the output is up to date instead of writing it          |
+| Flag                    | Meaning                                                        |
+|-------------------------|----------------------------------------------------------------|
+| `-types <SRC:DST>`      | pairs to map, comma-separated; repeatable. `*` marks a pointer |
+| `-converters <pkg>`     | package holding the `mapper.Register` calls; repeatable        |
+| `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                      |
+| `-output <path>`        | output directory, or a file path ending in `.go`               |
+| `-direction <dir>`      | `both` (default), `to`, or `from`                              |
+| `-package <name>`       | output package name (default: `$GOPACKAGE`)                    |
+| `-check`                | verify the output is up to date instead of writing it          |
 
 ### Example
 
@@ -459,28 +459,28 @@ err = db.Transaction(ctx, func(tx orm.Querier) error {
 
 The first element of an `orm` tag is either a relation kind or a column name; everything after it is an option.
 
-| Tag | Meaning |
-|-----|---------|
-| *(no tag)* | column inferred from the field name (`CreatedAt` → `created_at`) |
-| `orm:"col_name"` | explicit column name |
-| `orm:"-"` | not a column |
-| `orm:",primary_key"` | primary key (default: the field named `ID`) |
-| `orm:",created_at"` / `orm:",updated_at"` | timestamp managed on create/update (default: fields named `CreatedAt`/`UpdatedAt`) |
-| `orm:"has_many,foreign_key:user_id"` | one-to-many; the field is a slice |
-| `orm:"has_one,foreign_key:user_id"` | one-to-one; the target holds the key |
-| `orm:"belongs_to,foreign_key:user_id"` | the owning side; this struct holds the key |
-| `orm:"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_id"` | via a join table |
+| Tag                                                                             | Meaning                                                                            |
+|---------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| *(no tag)*                                                                      | column inferred from the field name (`CreatedAt` → `created_at`)                   |
+| `orm:"col_name"`                                                                | explicit column name                                                               |
+| `orm:"-"`                                                                       | not a column                                                                       |
+| `orm:",primary_key"`                                                            | primary key (default: the field named `ID`)                                        |
+| `orm:",created_at"` / `orm:",updated_at"`                                       | timestamp managed on create/update (default: fields named `CreatedAt`/`UpdatedAt`) |
+| `orm:"has_many,foreign_key:user_id"`                                            | one-to-many; the field is a slice                                                  |
+| `orm:"has_one,foreign_key:user_id"`                                             | one-to-one; the target holds the key                                               |
+| `orm:"belongs_to,foreign_key:user_id"`                                          | the owning side; this struct holds the key                                         |
+| `orm:"many_to_many,join_table:user_tags,foreign_key:user_id,references:tag_id"` | via a join table                                                                   |
 
 Table names are pluralized snake_case (`UserProfile` → `user_profiles`); `//kanna:table name=people` overrides one. Name inference is mechanical — there is deliberately no acronym dictionary, so a mixed-case name like `OAuthToken` takes its column from the tag. Anything malformed — an unknown option, a relation whose target generates no queries, a missing foreign key column — is a positioned error, not a silent skip.
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `-source <pkg>` | source package to scan |
-| `-destination <dir>` | output directory for `orm_gen.go` |
-| `-package <name>` | generated package name (defaults to what the destination declares) |
-| `-check` | verify the output is up to date instead of writing it |
+| Flag                 | Description                                                        |
+|----------------------|--------------------------------------------------------------------|
+| `-source <pkg>`      | source package to scan                                             |
+| `-destination <dir>` | output directory for `orm_gen.go`                                  |
+| `-package <name>`    | generated package name (defaults to what the destination declares) |
+| `-check`             | verify the output is up to date instead of writing it              |
 
 ### Example
 
@@ -607,13 +607,13 @@ code never breaks when a locale lags behind; it renders the default until the tr
 
 ### Flags
 
-| Flag              | Meaning                                                                    |
-|-------------------|----------------------------------------------------------------------------|
-| `-locales <dir>`  | directory containing locale files (default: `locales`)                     |
-| `-default <lang>` | default language defining the generated signatures (default: `en`)         |
-| `-destination <dir>` | output directory for the generated file (default: `messages`)           |
-| `-package <name>` | package name of the generated file (default: base of the output directory) |
-| `-check`          | verify the output is up to date instead of writing it                      |
+| Flag                 | Meaning                                                                    |
+|----------------------|----------------------------------------------------------------------------|
+| `-locales <dir>`     | directory containing locale files (default: `locales`)                     |
+| `-default <lang>`    | default language defining the generated signatures (default: `en`)         |
+| `-destination <dir>` | output directory for the generated file (default: `messages`)              |
+| `-package <name>`    | package name of the generated file (default: base of the output directory) |
+| `-check`             | verify the output is up to date instead of writing it                      |
 
 ### Example
 
