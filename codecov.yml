@@ -1,0 +1,15 @@
+coverage:
+  status:
+    # Non-blocking to start: the required checks stay the five CI jobs.
+    # Tighten once a baseline exists.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+ignore:
+  - "examples/**"
+  - "cmd/**"
+  - "**/testdata/**"

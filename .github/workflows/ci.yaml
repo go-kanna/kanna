@@ -45,6 +45,13 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
+          flags: unit
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   test-integration:
     runs-on: ubuntu-latest
     steps:
@@ -59,6 +66,13 @@ jobs:
 
       - name: Run integration tests
         run: make test-integration
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: orm/integration/coverage.out
+          flags: integration
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   build:
     runs-on: ubuntu-latest
