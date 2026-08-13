@@ -1,6 +1,9 @@
 # kanna
 
+[![CI](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml/badge.svg)](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/go-kanna/kanna/graph/badge.svg)](https://codecov.io/gh/go-kanna/kanna)
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-kanna/kanna.svg)](https://pkg.go.dev/github.com/go-kanna/kanna)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Go code generators built on the standard library — DI, struct mapping, test fixtures, ORM, i18n. Each
 works on its own and emits plain Go with no runtime reflection.
