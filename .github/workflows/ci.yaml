@@ -46,7 +46,7 @@ jobs:
         run: make test
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.out
           flags: unit
@@ -68,7 +68,7 @@ jobs:
         run: make test-integration
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: orm/integration/coverage.out
           flags: integration
