@@ -155,11 +155,10 @@ func (c CLI) generate(cfg Config) int {
 
 	plans, imports := Plans(kept, pkg.PkgPath, pkg.Name)
 
+	// Graph problems never fail the run: kanna-orm owns tag enforcement, and
+	// a broken graph only costs itself, explained by a warning.
 	graphs, graphImports, gds := GraphPlans(structs, kept, pkg.PkgPath, pkg.Name)
 	c.printDiags(gds)
-	if diag.HasErrors(gds) {
-		return exit.Error
-	}
 	imports = slices.Compact(slices.Sorted(slices.Values(append(imports, graphImports...))))
 
 	// The destination is meant to hold hand-written files too, so what is
@@ -327,7 +326,7 @@ func missingRequires(out []byte, imports []string, sourcePath, destDir string) [
 
 	for _, path := range candidates {
 		// The standard library never appears in go.mod.
-		if !strings.Contains(strings.SplitN(path, "/", 2)[0], ".") {
+		if stdlibImport(path) {
 			continue
 		}
 		// Match against the import line actually written, so a candidate the

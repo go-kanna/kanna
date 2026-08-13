@@ -270,10 +270,10 @@ for _, rec := range g.Records() { // foreign-key insertion order
 }
 ```
 
-Integer keys come from a process-wide counter and are set before any insert, which is what lets `Records()` go into a
-real database as-is: kanna-orm's `Create` takes a caller-set key verbatim. A nullable foreign key (`*int64`) marks the
-parent optional, so the graph neither builds nor wires it. Share a parent by plain assignment and call `Wire()` to make
-the keys follow:
+Keys are set before any insert — integer keys count up a process-wide counter, string keys become UUIDs — which is
+what lets `Records()` go into a real database as-is: kanna-orm's `Create` takes a caller-set key verbatim. A nullable
+foreign key (`*int64`) marks the parent optional, so the graph neither builds nor wires it. Share a parent by plain
+assignment and call `Wire()` to make the keys follow:
 
 ```go
 colleague := fixture.NewEmployeeGraph()
@@ -281,7 +281,8 @@ colleague.Department = g.Department
 colleague.Wire()
 ```
 
-A package without orm tags is untouched: graphs appear only where relations do.
+`Records()` sees one graph at a time: when two graphs share a parent, insert the shared record once. A package
+without orm tags is untouched: graphs appear only where relations do.
 
 
 ### Flags

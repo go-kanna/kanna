@@ -107,8 +107,7 @@ func (g *DepartmentGraph) Wire() {
 	g.Department.CompanyID = g.Company.ID
 }
 
-// Records returns the graph in foreign-key insertion order, keeping one
-// copy of records shared by assignment.
+// Records returns the graph in foreign-key insertion order.
 func (g *DepartmentGraph) Records() []any {
 	return []any{&g.Company, &g.Department}
 }
@@ -145,8 +144,7 @@ func (g *EmployeeGraph) Wire() {
 	g.Employee.DepartmentID = g.Department.ID
 }
 
-// Records returns the graph in foreign-key insertion order, keeping one
-// copy of records shared by assignment.
+// Records returns the graph in foreign-key insertion order.
 func (g *EmployeeGraph) Records() []any {
 	return []any{&g.Company, &g.Department, &g.Employee}
 }

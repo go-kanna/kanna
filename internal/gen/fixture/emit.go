@@ -95,8 +95,8 @@ func writeImports(buf *bytes.Buffer, p EmitParams) {
 		switch {
 		case e.Path == p.SourcePath:
 			return 2
-		case !strings.Contains(strings.SplitN(e.Path, "/", 2)[0], "."):
-			return 0 // standard library
+		case stdlibImport(e.Path):
+			return 0
 		default:
 			return 1
 		}
@@ -149,7 +149,7 @@ var nextPK atomic.Int64
 func needsCounter(graphs []GraphPlan) bool {
 	for _, gp := range graphs {
 		for _, n := range gp.Nodes {
-			if n.CounterConv != "" {
+			if n.UsesCounter {
 				return true
 			}
 		}
@@ -189,8 +189,8 @@ func writeGraph(buf *bytes.Buffer, qualifier string, gp GraphPlan) {
 	}
 	buf.WriteString("\t}\n")
 	for _, n := range gp.Nodes {
-		if n.CounterConv != "" {
-			fmt.Fprintf(buf, "\tg.%s.%s = %s(nextPK.Add(1))\n", n.Field, n.PKField, n.CounterConv)
+		if n.KeyExpr != "" {
+			fmt.Fprintf(buf, "\tg.%s.%s = %s\n", n.Field, n.PKField, n.KeyExpr)
 		}
 	}
 	for _, l := range gp.Loops {
@@ -213,8 +213,12 @@ func writeGraph(buf *bytes.Buffer, qualifier string, gp GraphPlan) {
 	}
 	buf.WriteString("}\n")
 
-	buf.WriteString("\n// Records returns the graph in foreign-key insertion order, keeping one\n")
-	buf.WriteString("// copy of records shared by assignment.\n")
+	if hasDedup(gp) {
+		buf.WriteString("\n// Records returns the graph in foreign-key insertion order, keeping one\n")
+		buf.WriteString("// copy of records shared by assignment.\n")
+	} else {
+		buf.WriteString("\n// Records returns the graph in foreign-key insertion order.\n")
+	}
 	fmt.Fprintf(buf, "func (g *%s) Records() []any {\n", gp.Name)
 	if !hasDedup(gp) {
 		buf.WriteString("\treturn []any{")
@@ -253,4 +257,11 @@ func hasDedup(gp GraphPlan) bool {
 		}
 	}
 	return false
+}
+
+// stdlibImport reports whether path names a standard-library package: no dot
+// in the first segment. A dot-less module path would be misread, which module
+// naming conventions make a non-concern in practice.
+func stdlibImport(path string) bool {
+	return !strings.Contains(strings.SplitN(path, "/", 2)[0], ".")
 }

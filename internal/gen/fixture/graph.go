@@ -1,6 +1,7 @@
 package fixture
 
 import (
+	"cmp"
 	"go/types"
 	"maps"
 	"slices"
@@ -27,9 +28,12 @@ type GraphPlan struct {
 type GraphNodePlan struct {
 	Field string // graph field name
 	Type  string // struct name in the source package, doubling as the fixture call
-	// CounterConv converts the shared counter's int64 for this node's key;
-	// empty when the key is not counter-assigned.
-	CounterConv string
+	// KeyExpr replaces the fixture's key after construction: the shared
+	// counter for integer keys, a UUID for string keys, so records stay
+	// unique across graphs. Empty for key types with neither form, which are
+	// unique only within their graph.
+	KeyExpr     string
+	UsesCounter bool
 	PKField     string
 	// DedupAgainst names earlier fields holding the same table, whose keys
 	// Records compares before appending this node: sharing a record is done
@@ -52,14 +56,23 @@ type GraphLoopPlan struct {
 }
 
 // GraphPlans turns the relation graphs of the source package into emission
-// plans. A graph whose record set cannot be built — a node without a fixture
-// function, or a duplicated table whose key cannot be kept distinct — is
-// skipped with a warning rather than generated broken.
+// plans. It never fails the run: kanna-orm owns tag enforcement, so here a
+// malformed table, a graph whose record set cannot be built, or a name
+// already taken by a fixture only costs the graphs involved, each skip
+// explained by a warning.
 func GraphPlans(structs []ir.Struct, targets []Target, pkgPath, pkgName string) ([]GraphPlan, []string, []diag.Diag) {
 	graphs, diags := relation.BuildGraphs(structs)
-	if diag.HasErrors(diags) || len(graphs) == 0 {
+	for i, d := range diags {
+		if d.Severity == diag.SeverityError {
+			diags[i].Severity = diag.SeverityWarning
+		}
+	}
+	if len(graphs) == 0 {
 		return nil, nil, diags
 	}
+	slices.SortStableFunc(graphs, func(a, b relation.Graph) int {
+		return cmp.Compare(a.Root, b.Root)
+	})
 
 	byName := make(map[string]Target, len(targets))
 	for _, tg := range targets {
@@ -72,6 +85,13 @@ func GraphPlans(structs []ir.Struct, targets []Target, pkgPath, pkgName string) 
 	}
 	inf.graph = inf.referenceGraph(targets)
 
+	// The generated file already declares one function per target, so a graph
+	// whose type or constructor would take one of those names cannot land.
+	taken := make(map[string]bool, len(targets))
+	for _, tg := range targets {
+		taken[tg.Name] = true
+	}
+
 	var plans []GraphPlan
 	imports := make(map[string]bool)
 
@@ -81,6 +101,18 @@ func GraphPlans(structs []ir.Struct, targets []Target, pkgPath, pkgName string) 
 		if plan == nil {
 			continue
 		}
+		if taken[plan.Name] || taken[plan.Ctor] {
+			name := plan.Name
+			if taken[plan.Ctor] {
+				name = plan.Ctor
+			}
+			diags = append(diags, diag.Warningf(g.Pos,
+				"skipping %s: %s is already declared in the generated file", plan.Name, name))
+			continue
+		}
+		taken[plan.Name] = true
+		taken[plan.Ctor] = true
+
 		for _, p := range pkgs {
 			imports[p] = true
 		}
@@ -114,8 +146,10 @@ func (inf inferrer) graphPlan(g relation.Graph, targets map[string]Target) (*Gra
 		}
 
 		earlier := seenByTable[node.Table]
-		if conv, ok := inf.counterConv(pk.Type); ok {
-			np.CounterConv = conv
+		if expr, usesCounter, exprPkgs, ok := inf.keyExpr(pk.Type); ok {
+			np.KeyExpr = expr
+			np.UsesCounter = usesCounter
+			pkgs = append(pkgs, exprPkgs...)
 		} else if len(earlier) > 0 {
 			regen := inf.fieldExpr(pk, node.Table)
 			if regen.expr == "" {
@@ -144,7 +178,7 @@ func (inf inferrer) graphPlan(g relation.Graph, targets map[string]Target) (*Gra
 		plan.Nodes = append(plan.Nodes, np)
 	}
 
-	if slices.ContainsFunc(plan.Nodes, func(n GraphNodePlan) bool { return n.CounterConv != "" }) {
+	if slices.ContainsFunc(plan.Nodes, func(n GraphNodePlan) bool { return n.UsesCounter }) {
 		pkgs = append(pkgs, atomicImport)
 	}
 
@@ -160,19 +194,35 @@ func (inf inferrer) graphPlan(g relation.Graph, targets map[string]Target) (*Gra
 	return &plan, pkgs, nil
 }
 
-// counterConv reports the conversion wrapping the shared int64 counter for an
-// integer key: the basic type's own name, or the qualified named type. A named
-// integer from another package is not renderable here and falls back to the
-// regeneration loop.
-func (inf inferrer) counterConv(typ types.Type) (string, bool) {
-	b, qualifier, ok := inf.basicOf(types.Unalias(typ))
-	if !ok || b.Info()&types.IsInteger == 0 {
-		return "", false
+// keyExpr builds the expression that replaces a graph record's key so it
+// stays unique across graphs: the shared counter for integer keys wide enough
+// not to wrap it, a UUID string for string keys. Anything else — narrow
+// integers, named types from other packages, exotic comparables — reports
+// false and stays unique only within its graph, through the regeneration
+// loop when the table repeats.
+func (inf inferrer) keyExpr(typ types.Type) (expr string, usesCounter bool, pkgs []string, ok bool) {
+	b, qualifier, resolved := inf.basicOf(types.Unalias(typ))
+	if !resolved {
+		return "", false, nil, false
 	}
-	if qualifier != "" {
-		return qualifier, true
+
+	switch b.Kind() {
+	case types.Int, types.Int32, types.Int64, types.Uint, types.Uint32, types.Uint64:
+		conv := qualifier
+		if conv == "" {
+			conv = b.Name()
+		}
+		return conv + "(nextPK.Add(1))", true, nil, true
+	case types.String:
+		return qualify("gofakeit.UUID()", qualifier), false, []string{gofakeitImport}, true
+	case types.Invalid, types.Bool, types.Int8, types.Int16, types.Uint8, types.Uint16, types.Uintptr,
+		types.Float32, types.Float64, types.Complex64, types.Complex128, types.UnsafePointer,
+		types.UntypedBool, types.UntypedInt, types.UntypedRune, types.UntypedFloat, types.UntypedComplex,
+		types.UntypedString, types.UntypedNil:
+		return "", false, nil, false
+	default:
+		return "", false, nil, false
 	}
-	return b.Name(), true
 }
 
 // fieldNamed finds a target's field by name.
