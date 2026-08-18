@@ -342,3 +342,66 @@ type Department struct {
 }
 `, "collides with the generated method")
 }
+
+// Directive messages and field diagnostics surface through BuildGraphs the
+// same way the orm generator reports them, in source order.
+func TestBuildGraphsReportsDirectiveMessages(t *testing.T) {
+	t.Parallel()
+
+	_, ds := graphsOf(t, `package model
+
+// kanna:table
+type User struct {
+	ID int64
+}
+`)
+	if got := diag.Format(ds); !strings.Contains(got, "kanna:table") {
+		t.Errorf("diags = %q, want the spaced-directive warning", got)
+	}
+}
+
+func TestBuildGraphsWarnsOnEmbeddedFields(t *testing.T) {
+	t.Parallel()
+
+	_, ds := graphsOf(t, `package model
+
+type Base struct {
+	Note string
+}
+
+//kanna:table
+type User struct {
+	Base
+	ID int64
+}
+`)
+	if got := diag.Format(ds); !strings.Contains(got, "embedded field Base is ignored") {
+		t.Errorf("diags = %q, want the embedded-field warning", got)
+	}
+}
+
+// A later field's diagnostic must not print before an earlier field's: the
+// classification and the graph's own checks interleave in declaration order.
+func TestBuildGraphsDiagnosticsKeepSourceOrder(t *testing.T) {
+	t.Parallel()
+
+	_, ds := graphsOf(t, `package model
+
+//kanna:table
+type User struct {
+	ID      int64
+	OwnerID int64
+	Owner   int `+"`orm:\"belongs_to,foreign_key:owner_id\"`"+`
+	Name    string `+"`orm:\"name,unique\"`"+`
+}
+`)
+	got := diag.Format(ds)
+	shape := strings.Index(got, "must be a struct")
+	parse := strings.Index(got, `unknown option "unique"`)
+	if shape < 0 || parse < 0 {
+		t.Fatalf("diags = %q, want both the shape error and the parse error", got)
+	}
+	if shape > parse {
+		t.Errorf("diags out of source order: %q", got)
+	}
+}

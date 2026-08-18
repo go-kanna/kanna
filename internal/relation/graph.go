@@ -80,28 +80,30 @@ func BuildGraphs(structs []ir.Struct) ([]Graph, []diag.Diag) {
 	return graphs, diags
 }
 
-// graphTables interprets every //kanna:table struct: its primary key and its
-// belongs_to edges, on top of the shared field classification. Structs
-// without the directive are not tables and are ignored entirely.
+// graphTables interprets every //kanna:table struct: the shared field
+// classification, then the graph's own concerns — belongs_to edges, the
+// primary key, foreign-key wiring. Directive messages and field diagnostics
+// come out in source order, the same order the orm generator reports them.
 func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 	tables := make(map[string]graphTable)
 	var diags []diag.Diag
 
 	for _, s := range structs {
-		d, _ := directive.Find(s.Doc, "table")
+		d, msgs := directive.Find(s.Doc, TableDirective)
+		diags = append(diags, msgs.Diags(s.Pos)...)
 		if !d.Found {
 			continue
 		}
 
 		c := classifyTable(s)
-		diags = append(diags, c.diags...)
 		t := graphTable{name: s.Name, pos: s.Pos, broken: c.broken}
 
-		for _, r := range c.relations {
-			if r.tag.Kind != "belongs_to" {
+		for _, cf := range c.fields {
+			diags = append(diags, cf.diags...)
+			if cf.relation == nil || cf.relation.Kind != "belongs_to" {
 				continue // children and join tables are not requirements
 			}
-			p, ds := parentEdge(s, r.field, r.tag)
+			p, ds := parentEdge(s, cf.field, cf.relation)
 			diags = append(diags, ds...)
 			if p == nil {
 				t.broken = true
@@ -110,12 +112,13 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 			t.parents = append(t.parents, *p)
 		}
 
-		candidates := make([]PKCandidate, len(c.columns))
-		for i, col := range c.columns {
+		columns := c.columns()
+		candidates := make([]PKCandidate, len(columns))
+		for i, col := range columns {
 			candidates[i] = PKCandidate{Name: col.field.Name, Explicit: col.explicitPK}
 		}
 		if picks := PickPrimaryKey(candidates); len(picks) == 1 {
-			pk := c.columns[picks[0]].field
+			pk := columns[picks[0]].field
 			t.pkField = pk.Name
 			t.pkType = pk.Type
 			t.pkComparable = types.Comparable(pk.Type)
@@ -125,7 +128,7 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 		// where the column model is at hand.
 		for i := range t.parents {
 			p := &t.parents[i]
-			col, found := columnNamed(c.columns, p.fkField)
+			col, found := columnNamed(columns, p.fkField)
 			if !found {
 				diags = append(diags, diag.Errorf(p.pos,
 					"%s.%s: foreign_key %q is not a column of %s", s.Name, p.field, p.fkField, s.Name))
@@ -169,23 +172,6 @@ func parentEdge(s ir.Struct, f ir.Field, rel *RelationTag) (*graphParent, []diag
 		fkField: rel.ForeignKey, // still a column name here
 		pos:     f.Pos,
 	}, nil
-}
-
-// column is one column-backed field with its resolved column name.
-type column struct {
-	field      ir.Field
-	name       string
-	explicitPK bool
-}
-
-// columnNamed finds the column carrying the given column name.
-func columnNamed(columns []column, name string) (column, bool) {
-	for _, c := range columns {
-		if c.name == name {
-			return c, true
-		}
-	}
-	return column{}, false
 }
 
 // graphBuilder accumulates one graph during the walk from its root.
