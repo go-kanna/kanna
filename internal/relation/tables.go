@@ -54,15 +54,15 @@ func Tables(structs []ir.Struct) (TableSet, []diag.Diag) {
 			continue
 		}
 
-		c := classifyTable(s)
-		tf := TableFields{Broken: c.broken}
-		for _, cf := range c.fields {
-			diags = append(diags, cf.diags...)
+		c := ClassifyTable(s)
+		tf := TableFields{Broken: c.Broken}
+		for _, cf := range c.Fields {
+			diags = append(diags, cf.Diags...)
 			switch {
-			case cf.column != nil:
-				tf.Columns = append(tf.Columns, cf.field.Name)
-			case cf.relation != nil:
-				tf.Relations = append(tf.Relations, cf.field.Name)
+			case cf.Column != nil:
+				tf.Columns = append(tf.Columns, cf.Field.Name)
+			case cf.Relation != nil:
+				tf.Relations = append(tf.Relations, cf.Field.Name)
 			}
 		}
 		set[s.PkgPath+"."+s.Name] = tf
