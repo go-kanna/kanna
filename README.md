@@ -410,6 +410,20 @@ A destination field with no source is an error, not a silent zero value. Exclude
 (`int` is 64 bits on some platforms), `int` → `uint` (sign), `int64` → `float64` (precision), or anything → `string`.
 Everything else needs a converter, and the error message shows the `mapper.Register` line that would satisfy it.
 
+### With kanna-orm models
+
+When a pair type is a `//kanna:table` struct, the mapper reads the same orm tags the ORM generator does:
+
+- A relation field (`has_many`, `belongs_to`, ...) with no counterpart in the wire type is skipped silently. It is a
+  query artifact, not row data, so it no longer needs a `map:"-"`.
+- With `-direction to`, a persisted column the To function never reads gets a warning — that is the one mode where a
+  schema-backed field can drop out of the API silently. Map it, tag it `map:"-"`, or pass `-exclude` to say the
+  omission is deliberate.
+- A malformed orm tag never fails the mapper; enforcing tags is kanna-orm's job. It only costs this awareness, with a
+  warning.
+
+Packages without orm tags are untouched.
+
 ### Flags
 
 | Flag                    | Meaning                                                        |
