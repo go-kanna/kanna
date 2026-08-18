@@ -6,21 +6,13 @@ import (
 	"testing"
 
 	"github.com/go-kanna/kanna/internal/diag"
-	"github.com/go-kanna/kanna/internal/packages"
-	"github.com/go-kanna/kanna/internal/pkgtest"
 	"github.com/go-kanna/kanna/internal/relation"
-	"github.com/go-kanna/kanna/internal/scan"
 )
 
 func tableSetOf(t *testing.T, src string) (relation.TableSet, []diag.Diag) {
 	t.Helper()
 
-	pkg := pkgtest.LoadFileAs(t, "model", src)
-	structs, ds := scan.Structs([]*packages.Package{pkg})
-	if diag.HasErrors(ds) {
-		t.Fatalf("scan: %s", diag.Format(ds))
-	}
-	return relation.Tables(structs)
+	return relation.Tables(scanOf(t, src))
 }
 
 func TestTablesClassifiesAndKeysByPackage(t *testing.T) {

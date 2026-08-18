@@ -3,23 +3,14 @@ package relation_test
 import (
 	"testing"
 
-	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/ir"
-	"github.com/go-kanna/kanna/internal/packages"
-	"github.com/go-kanna/kanna/internal/pkgtest"
 	"github.com/go-kanna/kanna/internal/relation"
-	"github.com/go-kanna/kanna/internal/scan"
 )
 
 func structNamedOf(t *testing.T, src, name string) ir.Struct {
 	t.Helper()
 
-	pkg := pkgtest.LoadFileAs(t, "model", src)
-	structs, ds := scan.Structs([]*packages.Package{pkg})
-	if diag.HasErrors(ds) {
-		t.Fatalf("scan: %s", diag.Format(ds))
-	}
-	for _, s := range structs {
+	for _, s := range scanOf(t, src) {
 		if s.Name == name {
 			return s
 		}
