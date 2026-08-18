@@ -81,8 +81,8 @@ func BuildGraphs(structs []ir.Struct) ([]Graph, []diag.Diag) {
 }
 
 // graphTables interprets every //kanna:table struct: its primary key and its
-// belongs_to edges. Structs without the directive are not tables and are
-// ignored entirely.
+// belongs_to edges, on top of the shared field classification. Structs
+// without the directive are not tables and are ignored entirely.
 func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 	tables := make(map[string]graphTable)
 	var diags []diag.Diag
@@ -93,54 +93,29 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 			continue
 		}
 
-		t := graphTable{name: s.Name, pos: s.Pos}
-		var columns []column
+		c := classifyTable(s)
+		diags = append(diags, c.diags...)
+		t := graphTable{name: s.Name, pos: s.Pos, broken: c.broken}
 
-		for _, f := range s.Fields {
-			if !f.Exported || f.Embedded {
-				continue
+		for _, r := range c.relations {
+			if r.tag.Kind != "belongs_to" {
+				continue // children and join tables are not requirements
 			}
-
-			raw, hasTag := f.Tag.Lookup(TagKey)
-			col, rel, errs := ParseTag(raw)
-			for _, e := range errs {
-				diags = append(diags, diag.Errorf(f.Pos, "%s.%s: %s", s.Name, f.Name, e))
-			}
-			if len(errs) > 0 {
+			p, ds := parentEdge(s, r.field, r.tag)
+			diags = append(diags, ds...)
+			if p == nil {
 				t.broken = true
 				continue
 			}
-
-			if rel != nil {
-				if rel.Kind != "belongs_to" {
-					continue // children and join tables are not requirements
-				}
-				p, ds := parentEdge(s, f, rel)
-				diags = append(diags, ds...)
-				if p == nil {
-					t.broken = true
-					continue
-				}
-				t.parents = append(t.parents, *p)
-				continue
-			}
-
-			if col.Skip || (!hasTag && RelationShape(f.Type)) {
-				continue
-			}
-			name := col.Column
-			if name == "" {
-				name = SnakeCase(f.Name)
-			}
-			columns = append(columns, column{field: f, name: name, explicitPK: col.PrimaryKey})
+			t.parents = append(t.parents, *p)
 		}
 
-		candidates := make([]PKCandidate, len(columns))
-		for i, c := range columns {
-			candidates[i] = PKCandidate{Name: c.field.Name, Explicit: c.explicitPK}
+		candidates := make([]PKCandidate, len(c.columns))
+		for i, col := range c.columns {
+			candidates[i] = PKCandidate{Name: col.field.Name, Explicit: col.explicitPK}
 		}
 		if picks := PickPrimaryKey(candidates); len(picks) == 1 {
-			pk := columns[picks[0]].field
+			pk := c.columns[picks[0]].field
 			t.pkField = pk.Name
 			t.pkType = pk.Type
 			t.pkComparable = types.Comparable(pk.Type)
@@ -150,16 +125,16 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 		// where the column model is at hand.
 		for i := range t.parents {
 			p := &t.parents[i]
-			c, found := columnNamed(columns, p.fkField)
+			col, found := columnNamed(c.columns, p.fkField)
 			if !found {
 				diags = append(diags, diag.Errorf(p.pos,
 					"%s.%s: foreign_key %q is not a column of %s", s.Name, p.field, p.fkField, s.Name))
 				t.broken = true
 				continue
 			}
-			p.fkField = c.field.Name
-			p.fkType = c.field.Type
-			_, isPtr := PointerElem(c.field.Type)
+			p.fkField = col.field.Name
+			p.fkType = col.field.Type
+			_, isPtr := PointerElem(col.field.Type)
 			p.required = !isPtr
 		}
 
