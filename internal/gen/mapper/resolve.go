@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/go-kanna/kanna/internal/relation"
 )
 
 // pairSpec is a type pair to generate mappers for, with types fully
@@ -33,6 +35,9 @@ type resolveConfig struct {
 	Conv      converterTable
 	Ignores   map[fieldKey]bool
 	Direction Direction
+	// Tables classifies the //kanna:table structs the pair types belong to,
+	// when any do. It relaxes and warns; it never adds errors.
+	Tables relation.TableSet
 }
 
 type resolver struct {
@@ -41,11 +46,13 @@ type resolver struct {
 	usedIgnores map[fieldKey]bool
 	badTags     map[token.Position]bool
 	errs        []error
+	warns       []string
 }
 
 // resolvePlans builds mapping plans for all pairs in the requested
-// directions. Errors are collected and reported together.
-func resolvePlans(cfg resolveConfig) ([]*funcPlan, error) {
+// directions. Errors are collected and reported together; warnings ride
+// along for the caller to print.
+func resolvePlans(cfg resolveConfig) ([]*funcPlan, []string, error) {
 	r := &resolver{
 		cfg:         cfg,
 		usedIgnores: make(map[fieldKey]bool),
@@ -55,11 +62,12 @@ func resolvePlans(cfg resolveConfig) ([]*funcPlan, error) {
 	for _, p := range r.plans {
 		r.resolveFields(p)
 	}
+	r.coverageWarnings()
 	r.finalize()
 	if len(r.errs) > 0 {
-		return nil, errors.Join(r.errs...)
+		return nil, nil, errors.Join(r.errs...)
 	}
-	return r.plans, nil
+	return r.plans, r.warns, nil
 }
 
 // buildShells creates empty plans for every pair and direction so nested
@@ -310,6 +318,13 @@ func (r *resolver) matchSrcField(
 	}
 	if v, ok := r.promotedField(p.src, srcNamed.Obj().Pkg(), f.Name()); ok {
 		return v, true
+	}
+	if named, _, ok := structNamed(p.dst); ok {
+		if tf, ok := r.cfg.Tables.Of(named); ok && slices.Contains(tf.Relations, f.Name()) {
+			// A relation field is a query artifact, not row data: a wire type
+			// without it is the expected case, not drift.
+			return nil, false
+		}
 	}
 	r.unmappedError(p, f)
 	return nil, false
@@ -603,6 +618,60 @@ func isByteSlice(t types.Type) bool {
 	}
 	b, ok := types.Unalias(s.Elem()).Underlying().(*types.Basic)
 	return ok && b.Kind() == types.Uint8
+}
+
+// coverageWarnings reports persisted columns a to-only run never reads. With
+// both directions generated, the From function demands a source for every
+// model field, which subsumes this check; generating only To is the one mode
+// where a schema-backed field can drop out of the wire silently.
+func (r *resolver) coverageWarnings() {
+	if r.cfg.Direction != DirectionTo {
+		return
+	}
+	for _, p := range r.plans {
+		srcNamed, srcStruct, ok := structNamed(p.src)
+		if !ok {
+			continue
+		}
+		tf, ok := r.cfg.Tables.Of(srcNamed)
+		if !ok || tf.Broken {
+			continue
+		}
+
+		read := make(map[string]bool, len(p.fields))
+		for _, fp := range p.fields {
+			read[fp.read.name] = true
+		}
+
+		for _, col := range tf.Columns {
+			if read[col] {
+				continue
+			}
+			if i := structFieldIndex(srcStruct, col); i >= 0 {
+				if _, tagged := reflect.StructTag(srcStruct.Tag(i)).Lookup("map"); tagged {
+					continue // map:"-" or a rename is an explicit statement
+				}
+			}
+			key := fieldKey{PkgPath: srcNamed.Obj().Pkg().Path(), Type: srcNamed.Obj().Name(), Field: col}
+			if r.cfg.Ignores[key] {
+				r.usedIgnores[key] = true
+				continue
+			}
+			r.warns = append(r.warns, fmt.Sprintf(
+				"%s.%s is a persisted column, but %s never reads it\n\t"+
+					"map it, exclude the field with map:\"-\", or pass -exclude %s.%s",
+				namedLabel(p.src), col, p.name, namedLabel(p.src), col))
+		}
+	}
+}
+
+func structFieldIndex(st *types.Struct, name string) int {
+	for i := range st.NumFields() {
+		if st.Field(i).Name() == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // finalize propagates error-returning through nested mapper calls until

@@ -77,7 +77,7 @@ func (c CLI) Run(args []string) int {
 		}
 	}
 
-	env := Env{GoFile: c.GoFile, GoPackage: c.GoPackage, Dir: dir}
+	env := Env{GoFile: c.GoFile, GoPackage: c.GoPackage, Dir: dir, Warn: c.Err}
 	if err := generate(cfg, env); err != nil {
 		fmt.Fprintln(c.Err, err)
 		return exit.Error

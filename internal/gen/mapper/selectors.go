@@ -7,6 +7,7 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -26,6 +27,8 @@ type Env struct {
 	GoPackage string
 	// Dir is the directory the generator runs in.
 	Dir string
+	// Warn receives non-fatal findings; nil means os.Stderr.
+	Warn io.Writer
 }
 
 type importDecl struct {
