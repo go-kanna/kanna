@@ -39,7 +39,7 @@ func TestResolvePlans(t *testing.T) {
 	t.Parallel()
 
 	pairs, table, model := employeePairs(t)
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  model.Fset,
 		Pairs: pairs,
 		Conv:  table,
@@ -92,7 +92,7 @@ func TestResolvePlansDirectionTo(t *testing.T) {
 	t.Parallel()
 
 	pairs, table, model := employeePairs(t)
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      model.Fset,
 		Pairs:     pairs,
 		Conv:      table,
@@ -119,7 +119,7 @@ func TestResolvePlansPromotedField(t *testing.T) {
 	pairs := []mapper.PairSpec{
 		{Src: namedType(t, model, "WithBase"), Dst: namedType(t, protolike, "Flat")},
 	}
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      model.Fset,
 		Pairs:     pairs,
 		Direction: mapper.DirectionTo,
@@ -143,7 +143,7 @@ func TestResolvePlansEmbeddedDstError(t *testing.T) {
 	pairs := []mapper.PairSpec{
 		{Src: namedType(t, model, "WithBase"), Dst: namedType(t, protolike, "Flat")},
 	}
-	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      model.Fset,
 		Pairs:     pairs,
 		Direction: mapper.DirectionFrom,
@@ -163,7 +163,7 @@ func TestResolvePlansPrefersTheMatchingRead(t *testing.T) {
 	t.Parallel()
 
 	opt := fixture(t, "optional")
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset: opt.Fset,
 		Pairs: []mapper.PairSpec{
 			{Src: types.NewPointer(namedType(t, opt, "Wire")), Dst: namedType(t, opt, "Domain")},
@@ -187,7 +187,7 @@ func TestResolvePlansPromotedFieldHonorsTags(t *testing.T) {
 	t.Parallel()
 
 	errcases := fixture(t, "errcases")
-	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset: errcases.Fset,
 		Pairs: []mapper.PairSpec{
 			{Src: namedType(t, errcases, "PromotedSrc"), Dst: namedType(t, errcases, "PromotedDst")},
@@ -283,7 +283,7 @@ func TestResolvePlansErrors(t *testing.T) {
 			pairs := []mapper.PairSpec{
 				{Src: namedType(t, errcases, tt.src), Dst: namedType(t, errcases, tt.dst)},
 			}
-			_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+			_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 				Fset:      errcases.Fset,
 				Pairs:     pairs,
 				Direction: mapper.DirectionTo,
@@ -307,7 +307,7 @@ func TestResolvePlansReportsBothInvalidPairTypes(t *testing.T) {
 	pairs := []mapper.PairSpec{
 		{Src: namedType(t, model, "UserID"), Dst: namedType(t, model, "Tag")},
 	}
-	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      model.Fset,
 		Pairs:     pairs,
 		Direction: mapper.DirectionBoth,
@@ -373,7 +373,7 @@ func TestResolvePlansUnusedIgnore(t *testing.T) {
 	pairs := []mapper.PairSpec{
 		{Src: namedType(t, errcases, "UnmappedSrc"), Dst: namedType(t, errcases, "UnmappedDst")},
 	}
-	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  errcases.Fset,
 		Pairs: pairs,
 		Ignores: map[mapper.FieldKey]bool{
@@ -401,7 +401,7 @@ func TestResolvePlansDuplicateName(t *testing.T) {
 		Src: namedType(t, errcases, "UnmappedSrc"),
 		Dst: namedType(t, errcases, "UnmappedSrc"),
 	}
-	_, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      errcases.Fset,
 		Pairs:     []mapper.PairSpec{pair, pair},
 		Direction: mapper.DirectionTo,

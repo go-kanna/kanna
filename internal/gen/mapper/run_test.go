@@ -2,6 +2,7 @@ package mapper_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,5 +249,163 @@ func TestRunRefusesToOverwriteHandWritten(t *testing.T) {
 
 	if got := readGenerated(t, dir); !strings.Contains(got, "Written by hand.") {
 		t.Errorf("the hand-written file was overwritten:\n%s", got)
+	}
+}
+
+// A relation-tagged field on a //kanna:table struct is a query artifact, not
+// row data: a wire type without it must not demand a map:"-".
+func TestRunRelationFieldsSkipUnmapped(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, baseModule(
+		`package model
+
+//kanna:table
+type User struct {
+	ID    int64
+	Name  string
+	Posts []Post `+"`orm:\"has_many,foreign_key:user_id\"`"+`
+}
+
+//kanna:table
+type Post struct {
+	ID     int64
+	UserID int64
+	User   *User `+"`orm:\"belongs_to,foreign_key:user_id\"`"+`
+}
+`,
+		`package wire
+
+type User struct {
+	ID   int64
+	Name string
+}
+`))
+
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	if strings.Contains(stderr, "no source field") {
+		t.Errorf("a relation field was reported as unmapped: %s", stderr)
+	}
+	got := readGenerated(t, dir)
+	if !strings.Contains(got, "func UserFromWire") {
+		t.Errorf("the From function is missing:\n%s", got)
+	}
+}
+
+// Generating only To is the one mode where a persisted column can drop out of
+// the wire silently, so it warns — and an explicit statement silences it.
+func TestRunToOnlyWarnsOnUnreadColumns(t *testing.T) {
+	t.Parallel()
+
+	model := `package model
+
+//kanna:table
+type User struct {
+	ID     int64
+	Name   string
+	Secret string%s
+}
+`
+	wire := `package wire
+
+type User struct {
+	ID   int64
+	Name string
+}
+`
+	t.Run("warns", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		writeModule(t, dir, baseModule(fmt.Sprintf(model, ""), wire))
+		code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out")
+		if code != exit.OK {
+			t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+		}
+		if !strings.Contains(stderr, "Secret is a persisted column") {
+			t.Errorf("stderr misses the coverage warning: %s", stderr)
+		}
+	})
+
+	t.Run("a map tag silences", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		writeModule(t, dir, baseModule(fmt.Sprintf(model, " `map:\"-\"`"), wire))
+		code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out")
+		if code != exit.OK {
+			t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+		}
+		if strings.Contains(stderr, "persisted column") {
+			t.Errorf("an excluded column still warned: %s", stderr)
+		}
+	})
+
+	t.Run("an exclude flag silences and counts as used", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		writeModule(t, dir, baseModule(fmt.Sprintf(model, ""), wire))
+		code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out",
+			"-exclude=example.com/app/model.User.Secret")
+		if code != exit.OK {
+			t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+		}
+		if strings.Contains(stderr, "persisted column") || strings.Contains(stderr, "matched nothing") {
+			t.Errorf("the exclude did not silence cleanly: %s", stderr)
+		}
+	})
+
+	t.Run("both directions subsume the check", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		writeModule(t, dir, baseModule(fmt.Sprintf(model, " `map:\"-\"`"), wire))
+		code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out")
+		if code != exit.OK {
+			t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+		}
+		if strings.Contains(stderr, "persisted column") {
+			t.Errorf("the coverage warning fired outside -direction=to: %s", stderr)
+		}
+	})
+}
+
+// A malformed orm tag is the orm generator's to enforce; here it only costs
+// the awareness, never the mapping.
+func TestRunMalformedOrmTagWarnsOnly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, baseModule(
+		`package model
+
+//kanna:table
+type User struct {
+	ID   int64
+	Name string `+"`orm:\"name,unique\"`"+`
+}
+`,
+		`package wire
+
+type User struct {
+	ID   int64
+	Name string
+}
+`))
+
+	code, _, stderr := runCLI(t, dir, pairFlag, "-destination=./out", "-package=out")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	if !strings.Contains(stderr, `unknown option "unique"`) {
+		t.Errorf("stderr misses the demoted tag warning: %s", stderr)
+	}
+	if strings.Contains(stderr, "error:") {
+		t.Errorf("a tag problem escalated to an error: %s", stderr)
 	}
 }

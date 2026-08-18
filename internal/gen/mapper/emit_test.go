@@ -44,7 +44,7 @@ func TestEmitFile(t *testing.T) {
 	t.Parallel()
 
 	pairs, table, model := employeePairs(t)
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  model.Fset,
 		Pairs: pairs,
 		Conv:  table,
@@ -72,7 +72,7 @@ func TestEmitFileSelfImport(t *testing.T) {
 	pairs := []mapper.PairSpec{
 		{Src: namedType(t, model, "Address"), Dst: types.NewPointer(namedType(t, protolike, "Address"))},
 	}
-	plans, err := mapper.ResolvePlans(mapper.ResolveConfig{
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:      model.Fset,
 		Pairs:     pairs,
 		Direction: mapper.DirectionBoth,

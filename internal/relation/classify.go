@@ -8,16 +8,24 @@ import (
 // TableDirective is the directive key that opts a struct in as a table.
 const TableDirective = "table"
 
-// classifiedField is one field with its disposition. Exactly one of column
-// and relation is set for a classified field; neither means the field is
-// skipped (orm:"-", an untagged field shaped like a relation, or an embedded
-// field, which carries only its warning). diags hold whatever the field has
-// to say — malformed tags, the embedded warning — in declaration order.
+// classifiedField is one field the classification has something to say
+// about: a column (column set), a relation (relation set), a malformed tag
+// (diags only, and the table is marked broken), or an embedded field (its
+// warning only). Fields with nothing to say — unexported ones, orm:"-", and
+// untagged fields shaped like a relation — carry no entry at all.
 type classifiedField struct {
 	field    ir.Field
-	column   *column
+	column   *columnInfo
 	relation *RelationTag
 	diags    []diag.Diag
+}
+
+// columnInfo is the column half of a field's tag: the resolved column name
+// and whether the tag claims the primary key. The field itself lives on the
+// classifiedField, once.
+type columnInfo struct {
+	name       string
+	explicitPK bool
 }
 
 // classifiedTable is the shared interpretation of one table struct's fields,
@@ -71,19 +79,20 @@ func classifyTable(s ir.Struct) classifiedTable {
 		}
 		c.fields = append(c.fields, classifiedField{
 			field:  f,
-			column: &column{field: f, name: name, explicitPK: col.PrimaryKey},
+			column: &columnInfo{name: name, explicitPK: col.PrimaryKey},
 		})
 	}
 
 	return c
 }
 
-// columns returns the column-backed entries in declaration order.
+// columns returns the column-backed entries in declaration order, each field
+// zipped with its column facts.
 func (c classifiedTable) columns() []column {
 	var out []column
 	for _, cf := range c.fields {
 		if cf.column != nil {
-			out = append(out, *cf.column)
+			out = append(out, column{field: cf.field, name: cf.column.name, explicitPK: cf.column.explicitPK})
 		}
 	}
 	return out

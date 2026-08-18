@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/output"
 	"github.com/go-kanna/kanna/internal/packages"
+	"github.com/go-kanna/kanna/internal/relation"
+	"github.com/go-kanna/kanna/internal/scan"
 )
 
 // generate executes one invocation: it loads the involved packages in
@@ -92,15 +96,22 @@ func generate(cfg Config, env Env) error {
 		return err
 	}
 
-	plans, err := resolvePlans(resolveConfig{
+	tables, tds := tableSet(ld, pairs)
+	warnDiags(env, tds)
+
+	plans, warns, err := resolvePlans(resolveConfig{
 		Fset:      ld.fset,
 		Pairs:     pairs,
 		Conv:      table,
 		Ignores:   ignores,
 		Direction: cfg.Direction,
+		Tables:    tables,
 	})
 	if err != nil {
 		return err
+	}
+	for _, w := range warns {
+		fmt.Fprintf(warnWriter(env), "warning: %s\n", w)
 	}
 
 	code, err := emitFile(pkgName, outPkgPath, plans)
@@ -147,6 +158,28 @@ func loadPatterns(cfg Config, env Env, scope importScope, names map[string]strin
 		}
 	}
 	patterns = append(patterns, cfg.ConverterPkgs...)
+
+	// The pair types' packages load in full too: reading //kanna:table
+	// directives needs syntax, and a package reached only as a dependency
+	// carries none. A selector that fails to resolve here is not reported —
+	// the pair resolution owns that error and its message.
+	seen := make(map[string]bool, len(patterns))
+	for _, pat := range patterns {
+		seen[pat] = true
+	}
+	for _, pair := range cfg.Pairs {
+		for _, ref := range []TypeRef{pair.Src, pair.Dst} {
+			if ref.Pkg == "" {
+				continue // the output package is already a pattern
+			}
+			path, err := resolvePkgPath(ref, scope, names, "")
+			if err != nil || seen[path] {
+				continue
+			}
+			seen[path] = true
+			patterns = append(patterns, path)
+		}
+	}
 
 	refs := make([]TypeRef, 0, len(cfg.Pairs)*2+len(cfg.Ignores))
 	for _, pair := range cfg.Pairs {
@@ -329,4 +362,61 @@ func resolvePkgPath(ref TypeRef, scope importScope, names map[string]string, out
 	default:
 		return scope.resolveSelector(ref.Pkg, names)
 	}
+}
+
+// tableSet classifies the //kanna:table structs of every package a pair type
+// lives in. A package that was not loaded in full yields no classification:
+// the mapper only relaxes and warns from what it can read, so missing syntax
+// costs nothing but the extras.
+func tableSet(ld *loaded, pairs []pairSpec) (relation.TableSet, []diag.Diag) {
+	seen := make(map[string]bool, len(pairs))
+	var pkgs []*packages.Package
+	for _, pair := range pairs {
+		for _, t := range []types.Type{pair.Src, pair.Dst} {
+			named, _, ok := structNamed(t)
+			if !ok {
+				continue
+			}
+			p := named.Obj().Pkg()
+			if p == nil || seen[p.Path()] {
+				continue
+			}
+			seen[p.Path()] = true
+			if lp := ld.byPath[p.Path()]; lp != nil && len(lp.Syntax) > 0 {
+				pkgs = append(pkgs, lp)
+			}
+		}
+	}
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+
+	structs, ds := scan.Structs(pkgs)
+	set, tds := relation.Tables(structs)
+	return set, append(ds, tds...)
+}
+
+// warnDiags prints diagnostics with errors demoted to warnings: the mapper
+// does not own orm tag enforcement, so a malformed table costs the orm
+// awareness, never the mapping.
+func warnDiags(env Env, ds []diag.Diag) {
+	if len(ds) == 0 {
+		return
+	}
+	demoted := make([]diag.Diag, len(ds))
+	for i, d := range ds {
+		if d.Severity == diag.SeverityError {
+			d.Severity = diag.SeverityWarning
+		}
+		demoted[i] = d
+	}
+	fmt.Fprintln(warnWriter(env), diag.Format(demoted))
+}
+
+// warnWriter is the stream non-fatal findings go to.
+func warnWriter(env Env) io.Writer {
+	if env.Warn != nil {
+		return env.Warn
+	}
+	return os.Stderr
 }
