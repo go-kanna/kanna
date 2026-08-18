@@ -99,7 +99,7 @@ func Tables(structs []ir.Struct) ([]Table, []diag.Diag) {
 
 	marked := make(map[string]bool, len(structs))
 	for _, s := range structs {
-		d, msgs := directive.Find(s.Doc, "table")
+		d, msgs := directive.Find(s.Doc, relation.TableDirective)
 		diags = append(diags, msgs.Diags(s.Pos)...)
 		if !d.Found {
 			diags = append(diags, warnUntaggedUse(s)...)
