@@ -156,37 +156,19 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 
 	srcPkg := s.Named.Obj().Pkg()
 
-	for _, f := range s.Fields {
-		if f.Embedded {
-			diags = append(diags, diag.Warningf(f.Pos,
-				"embedded field %s is ignored; declare its columns on %s directly", f.Name, s.Name))
-			continue
-		}
-		if !f.Exported {
-			continue
-		}
+	for _, cf := range relation.ClassifyTable(s).Fields {
+		diags = append(diags, cf.Diags...)
 
-		raw, hasTag := f.Tag.Lookup(relation.TagKey)
-		col, rel, errs := relation.ParseTag(raw)
-		for _, e := range errs {
-			diags = append(diags, diag.Errorf(f.Pos, "%s.%s: %s", s.Name, f.Name, e))
-		}
-		if len(errs) > 0 {
-			continue
-		}
-
-		if rel != nil {
-			r, ds := buildRelation(s, f, rel, srcPkg)
+		if cf.Relation != nil {
+			r, ds := buildRelation(s, cf.Field, cf.Relation, srcPkg)
 			diags = append(diags, ds...)
 			if r != nil {
 				table.Relations = append(table.Relations, *r)
 			}
 			continue
 		}
-
-		field, ok := buildField(f, col, hasTag)
-		if ok {
-			table.Fields = append(table.Fields, field)
+		if cf.Column != nil {
+			table.Fields = append(table.Fields, buildField(cf.Field, *cf.Column))
 		}
 	}
 
@@ -211,44 +193,26 @@ func parseTableArgs(args string, pos token.Position) (string, []diag.Diag) {
 	return v, nil
 }
 
-// buildField turns a column-tagged (or untagged) field into a Field. Untagged
-// fields whose type reads as a relation — a slice of structs or a pointer to
-// one — are not columns and are skipped, the same way a hand-written query
-// would not select them; struct types that still read as columns (time.Time,
-// anything a driver can hand a value through Scan) stay.
-//
-// Writing any orm tag turns the name-based timestamp inference off: a tag is
-// an explicit statement of what the field is, so a field that wants both a
-// custom column name and timestamp behavior says so with created_at or
-// updated_at.
-func buildField(f ir.Field, col *relation.ColumnTag, hasTag bool) (Field, bool) {
-	if col.Skip {
-		return Field{}, false
-	}
-	if !hasTag && relation.RelationShape(f.Type) {
-		return Field{}, false
-	}
-
-	column := col.Column
-	if column == "" {
-		column = relation.SnakeCase(f.Name)
-	}
-
+// buildField turns one classified column into a Field: the shared facts —
+// name, key, timestamps — come from the classification, and only what query
+// generation needs on top (the rendered type and its imports) is resolved
+// here.
+func buildField(f ir.Field, facts relation.ColumnFacts) Field {
 	basic, isBasic := f.Type.Underlying().(*types.Basic)
 	goType, typePkgs := renderType(f.Type)
 
 	return Field{
 		Name:       f.Name,
-		Column:     column,
+		Column:     facts.Name,
 		GoType:     goType,
 		IntKind:    isBasic && basic.Info()&types.IsInteger != 0,
 		Comparable: types.Comparable(f.Type),
 		TypePkgs:   typePkgs,
-		PrimaryKey: col.PrimaryKey,
-		CreatedAt:  col.CreatedAt || (!hasTag && f.Name == "CreatedAt"),
-		UpdatedAt:  col.UpdatedAt || (!hasTag && f.Name == "UpdatedAt"),
+		PrimaryKey: facts.PrimaryKey,
+		CreatedAt:  facts.CreatedAt,
+		UpdatedAt:  facts.UpdatedAt,
 		Pos:        f.Pos,
-	}, true
+	}
 }
 
 func buildRelation(s ir.Struct, f ir.Field, rel *relation.RelationTag, srcPkg *types.Package) (*Relation, []diag.Diag) {
