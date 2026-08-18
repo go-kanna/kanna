@@ -615,3 +615,28 @@ type Part struct {
 }
 `, "not comparable")
 }
+
+// A malformed tag already explains itself; concluding "no primary key" from
+// the incomplete column list it left behind would be a misleading cascade.
+func TestTablesBrokenTagDoesNotCascade(t *testing.T) {
+	t.Parallel()
+
+	_, ds := planOf(t, `package model
+
+//kanna:table
+type User struct {
+	ID   int64 `+"`orm:\"id,primary_keyy\"`"+`
+	Name string
+}
+`)
+	if !diag.HasErrors(ds) {
+		t.Fatal("expected the tag error")
+	}
+	got := diag.Format(ds)
+	if !strings.Contains(got, `unknown option "primary_keyy"`) {
+		t.Errorf("diags = %q, want the tag error", got)
+	}
+	if strings.Contains(got, "has no primary key") {
+		t.Errorf("diags = %q: the missing-key conclusion cascades from the broken tag", got)
+	}
+}

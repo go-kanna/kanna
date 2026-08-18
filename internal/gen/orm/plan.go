@@ -156,7 +156,8 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 
 	srcPkg := s.Named.Obj().Pkg()
 
-	for _, cf := range relation.ClassifyTable(s).Fields {
+	classified := relation.ClassifyTable(s)
+	for _, cf := range classified.Fields {
 		diags = append(diags, cf.Diags...)
 
 		if cf.Relation != nil {
@@ -172,7 +173,7 @@ func buildTable(s ir.Struct, args string) (*Table, []diag.Diag) {
 		}
 	}
 
-	diags = append(diags, resolvePK(&table, s)...)
+	diags = append(diags, resolvePK(&table, s, classified.Broken)...)
 	diags = append(diags, checkTimestamps(table, s)...)
 	diags = append(diags, checkColumns(table)...)
 
@@ -274,8 +275,10 @@ func buildRelation(s ir.Struct, f ir.Field, rel *relation.RelationTag, srcPkg *t
 
 // resolvePK settles the primary key: an explicit primary_key option wins, a
 // field named ID is the fallback, anything else is an error. Two explicit
-// keys are two mistakes with positions, not a silent pick.
-func resolvePK(table *Table, s ir.Struct) []diag.Diag {
+// keys are two mistakes with positions, not a silent pick. A broken table
+// suppresses the missing-key conclusion — the column list is incomplete, and
+// the tag errors already explain it — but keeps the positive findings.
+func resolvePK(table *Table, s ir.Struct, broken bool) []diag.Diag {
 	candidates := make([]relation.PKCandidate, len(table.Fields))
 	for i, f := range table.Fields {
 		candidates[i] = relation.PKCandidate{Name: f.Name, Explicit: f.PrimaryKey}
@@ -287,6 +290,9 @@ func resolvePK(table *Table, s ir.Struct) []diag.Diag {
 		table.Fields[picks[0]].PrimaryKey = true
 		return nil
 	case 0:
+		if broken {
+			return nil
+		}
 		return []diag.Diag{diag.Errorf(s.Pos,
 			"%s has no primary key; name a field ID or tag one with orm:\",primary_key\"", s.Name)}
 	default:
