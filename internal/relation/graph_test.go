@@ -5,13 +5,16 @@ import (
 	"testing"
 
 	"github.com/go-kanna/kanna/internal/diag"
+	"github.com/go-kanna/kanna/internal/ir"
 	"github.com/go-kanna/kanna/internal/packages"
 	"github.com/go-kanna/kanna/internal/pkgtest"
 	"github.com/go-kanna/kanna/internal/relation"
 	"github.com/go-kanna/kanna/internal/scan"
 )
 
-func graphsOf(t *testing.T, src string) ([]relation.Graph, []diag.Diag) {
+// scanOf loads src as package model and returns its scanned structs, the
+// preamble every relation test shares.
+func scanOf(t *testing.T, src string) []ir.Struct {
 	t.Helper()
 
 	pkg := pkgtest.LoadFileAs(t, "model", src)
@@ -19,7 +22,13 @@ func graphsOf(t *testing.T, src string) ([]relation.Graph, []diag.Diag) {
 	if diag.HasErrors(ds) {
 		t.Fatalf("scan: %s", diag.Format(ds))
 	}
-	return relation.BuildGraphs(structs)
+	return structs
+}
+
+func graphsOf(t *testing.T, src string) ([]relation.Graph, []diag.Diag) {
+	t.Helper()
+
+	return relation.BuildGraphs(scanOf(t, src))
 }
 
 func mustGraphs(t *testing.T, src string) []relation.Graph {

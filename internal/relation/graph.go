@@ -95,15 +95,15 @@ func graphTables(structs []ir.Struct) (map[string]graphTable, []diag.Diag) {
 			continue
 		}
 
-		c := classifyTable(s)
-		t := graphTable{name: s.Name, pos: s.Pos, broken: c.broken}
+		c := ClassifyTable(s)
+		t := graphTable{name: s.Name, pos: s.Pos, broken: c.Broken}
 
-		for _, cf := range c.fields {
-			diags = append(diags, cf.diags...)
-			if cf.relation == nil || cf.relation.Kind != "belongs_to" {
+		for _, cf := range c.Fields {
+			diags = append(diags, cf.Diags...)
+			if cf.Relation == nil || cf.Relation.Kind != "belongs_to" {
 				continue // children and join tables are not requirements
 			}
-			p, ds := parentEdge(s, cf.field, cf.relation)
+			p, ds := parentEdge(s, cf.Field, cf.Relation)
 			diags = append(diags, ds...)
 			if p == nil {
 				t.broken = true
