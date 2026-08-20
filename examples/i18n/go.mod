@@ -9,13 +9,13 @@ go 1.25.0
 tool github.com/go-kanna/kanna/cmd/kanna-i18n
 
 require (
-	github.com/go-kanna/kanna v0.0.0-20260813013314-48e4dcc2fa67
-	golang.org/x/text v0.40.0
+	github.com/go-kanna/kanna v0.0.1
+	golang.org/x/text v0.41.0
 )
 
 require (
-	github.com/kr/pretty v0.3.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
+	github.com/rogpeppe/go-internal v1.6.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
