@@ -1,6 +1,6 @@
 module github.com/go-kanna/kanna/orm/integration
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/go-kanna/kanna v0.0.0-20260813013314-48e4dcc2fa67
