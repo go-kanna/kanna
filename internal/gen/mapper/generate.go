@@ -145,7 +145,13 @@ type loaded struct {
 // the directory would also resolve every selector, but it would type-check a
 // great deal of code the output never mentions.
 func loadPatterns(cfg Config, env Env, scope importScope, names map[string]string, outDir string) ([]string, error) {
-	patterns := []string{"."}
+	// The working directory matters only as the home of short selectors and
+	// unqualified types; a run naming everything by import path can start
+	// anywhere, including outside any package.
+	var patterns []string
+	if dirHasGoFiles(env.Dir) {
+		patterns = append(patterns, ".")
+	}
 	if outDir != "." {
 		// A missing or empty output directory is fine: the file lands in a
 		// fresh package, so there is nothing to load from it.
