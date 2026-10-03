@@ -105,7 +105,7 @@ func (c CLI) Run(args []string) int {
 		}
 	}
 
-	res, err := packages.Load(patterns, packages.Config{
+	res, dropped, err := load(patterns, packages.Config{
 		Dir:       c.Dir,
 		BuildTags: splitTags(tagsRaw),
 	})
@@ -120,6 +120,10 @@ func (c CLI) Run(args []string) int {
 	structs, dsS := scan.Structs(res.Packages)
 	c.printDiags(dsS)
 	if diag.HasErrors(dsS) {
+		for _, path := range dropped {
+			fmt.Fprintf(c.Err, "note: %s is stale and was set aside; code calling its constructors has to "+
+				"move out of the scanned packages, or delete the file and regenerate\n", path)
+		}
 		return exit.Error
 	}
 

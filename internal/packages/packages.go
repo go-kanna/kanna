@@ -39,6 +39,10 @@ type Config struct {
 	// through this. It is opt-in because retaining the maps costs memory that a
 	// scan over declarations has no use for.
 	TypesInfo bool
+
+	// Overlay replaces the contents of the named files (absolute paths) for the
+	// load, without touching the disk.
+	Overlay map[string][]byte
 }
 
 // Result contains the packages loaded for the requested patterns.
@@ -74,10 +78,11 @@ func Load(patterns []string, cfg Config) (*Result, error) {
 
 	fset := token.NewFileSet()
 	pc := &packages.Config{
-		Mode:  mode,
-		Tests: cfg.Tests,
-		Dir:   cfg.Dir,
-		Fset:  fset,
+		Mode:    mode,
+		Tests:   cfg.Tests,
+		Dir:     cfg.Dir,
+		Fset:    fset,
+		Overlay: cfg.Overlay,
 	}
 
 	if tags := joinTags(cfg.BuildTags); tags != "" {
