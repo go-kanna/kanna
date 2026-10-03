@@ -359,3 +359,85 @@ func (r *resolver) resolveProvider(p *Provider, pos token.Position) (int, []diag
 	r.stepByKey[key] = id
 	return id, diags
 }
+
+// BuildAll resolves every container of one run.
+//
+// A container may depend on another container of the same run, whose
+// constructor an earlier run may not have emitted yet. Its signature is settled
+// once that container resolves, so containers are built in rounds: each one
+// that resolves offers its constructor to the next round, until a round makes
+// no progress. A constructor left from an earlier run for one of these
+// containers is set aside, since it may describe a container that has changed.
+//
+// Plans are returned in container order, for the containers that resolved.
+func BuildAll(containers []Container, providers []Provider, opts Options) ([]Plan, []diag.Diag) {
+	own := make(map[string]bool, len(containers)*2)
+	for _, c := range containers {
+		name := constructorNameFor(c)
+		own[c.PkgPath+"."+name] = true
+		own[c.PkgPath+".Must"+name] = true
+	}
+	var base []Provider
+	for _, p := range providers {
+		if p.Generated && own[p.PkgPath+"."+p.FuncName] {
+			continue
+		}
+		base = append(base, p)
+	}
+
+	plans := make([]Plan, len(containers))
+	diags := make([][]diag.Diag, len(containers))
+	done := make([]bool, len(containers))
+	for {
+		idx := NewIndex(base)
+		progress := false
+		for i, c := range containers {
+			if done[i] {
+				continue
+			}
+			pl, ds := Build(c, idx, opts)
+			diags[i] = ds
+			if diag.HasErrors(ds) {
+				continue
+			}
+			plans[i] = pl
+			done[i] = true
+			progress = true
+			base = append(base, constructorProvider(pl))
+		}
+		if !progress {
+			break
+		}
+	}
+
+	var (
+		out []Plan
+		all []diag.Diag
+	)
+	for i := range containers {
+		all = append(all, diags[i]...)
+		if done[i] {
+			out = append(out, plans[i])
+		}
+	}
+	return out, all
+}
+
+// constructorProvider describes the constructor a plan is about to emit.
+func constructorProvider(pl Plan) Provider {
+	params := make([]types.Type, 0, len(pl.Inputs))
+	for _, in := range pl.Inputs {
+		params = append(params, in.Type)
+	}
+	c := pl.Container
+	return Provider{
+		PkgPath:      c.PkgPath,
+		PkgName:      c.PkgName,
+		FuncName:     pl.ConstructorName,
+		Result:       pl.ReturnType,
+		Params:       params,
+		ReturnsError: pl.ReturnsError,
+		Generated:    true,
+		Pos:          c.Pos,
+	}
+}
