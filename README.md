@@ -431,7 +431,7 @@ Packages without orm tags are untouched.
 | `-types <SRC:DST>`      | pairs to map, comma-separated; repeatable. `*` marks a pointer |
 | `-converters <pkg>`     | package holding the `mapper.Register` calls; repeatable        |
 | `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                      |
-| `-output <path>`        | output directory, or a file path ending in `.go`               |
+| `-destination <dir>`    | output directory for `mapper_gen.go` (default: `.`)            |
 | `-direction <dir>`      | `both` (default), `to`, or `from`                              |
 | `-package <name>`       | output package name (default: `$GOPACKAGE`)                    |
 | `-check`                | verify the output is up to date instead of writing it          |
