@@ -46,12 +46,11 @@ func TestEmitFile(t *testing.T) {
 	pairs, table, model := employeePairs(t)
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  model.Fset,
-		Pairs: pairs,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionBoth),
 		Conv:  table,
 		Ignores: map[mapper.FieldKey]bool{
 			{PkgPath: model.PkgPath, Type: "Employee", Field: "CreatedAt"}: true,
 		},
-		Direction: mapper.DirectionBoth,
 	})
 	if err != nil {
 		t.Fatalf("resolve plans: %v", err)
@@ -73,9 +72,8 @@ func TestEmitFileSelfImport(t *testing.T) {
 		{Src: namedType(t, model, "Address"), Dst: types.NewPointer(namedType(t, protolike, "Address"))},
 	}
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      model.Fset,
-		Pairs:     pairs,
-		Direction: mapper.DirectionBoth,
+		Fset:  model.Fset,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionBoth),
 	})
 	if err != nil {
 		t.Fatalf("resolve plans: %v", err)

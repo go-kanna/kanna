@@ -122,6 +122,43 @@ func TestRunOutsideAPackage(t *testing.T) {
 	}
 }
 
+// One run can map one type out and another in, without generating the reverse
+// functions that would each need converters of their own.
+func TestRunPerPairDirection(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeModule(t, dir, baseModule(
+		"package model\n\ntype User struct {\n\tID int32\n}\n\ntype Item struct {\n\tID int32\n}\n",
+		"package wire\n\ntype User struct {\n\tID int64\n}\n\ntype Item struct {\n\tID int32\n\tToken string\n}\n",
+	))
+
+	// Both reverse directions would fail: int64 does not narrow into int32, and
+	// model.Item has no Token to fill wire.Item with.
+	code, _, stderr := runCLI(t, dir,
+		"-types=example.com/app/model.User->example.com/app/wire.User",
+		"-types=example.com/app/model.Item<-example.com/app/wire.Item",
+		"-destination=./out", "-package=out")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	got := readGenerated(t, dir)
+	for _, want := range []string{
+		"func UserToWire(src model.User) wire.User {",
+		"func ItemFromWire(src wire.Item) model.Item {",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated file does not contain %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"UserFromWire", "ItemToWire"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("generated file contains %s, which was not asked for:\n%s", unwanted, got)
+		}
+	}
+}
+
 // A tag on a promoted field keeps applying. Copying the field anyway would leak
 // data the author excluded, with nothing on stderr to say so.
 func TestRunPromotedFieldKeepsItsTag(t *testing.T) {

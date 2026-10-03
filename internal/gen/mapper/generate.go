@@ -63,7 +63,11 @@ func generate(cfg Config, env Env) error {
 		if err != nil {
 			return err
 		}
-		pairs = append(pairs, pairSpec{Src: src, Dst: dst})
+		dir := pair.Direction
+		if dir == "" {
+			dir = cfg.Direction
+		}
+		pairs = append(pairs, pairSpec{Src: src, Dst: dst, Direction: dir})
 	}
 
 	ignores := make(map[fieldKey]bool, len(cfg.Ignores))
@@ -100,12 +104,11 @@ func generate(cfg Config, env Env) error {
 	warnDiags(env, tds)
 
 	plans, warns, err := resolvePlans(resolveConfig{
-		Fset:      ld.fset,
-		Pairs:     pairs,
-		Conv:      table,
-		Ignores:   ignores,
-		Direction: cfg.Direction,
-		Tables:    tables,
+		Fset:    ld.fset,
+		Pairs:   pairs,
+		Conv:    table,
+		Ignores: ignores,
+		Tables:  tables,
 	})
 	if err != nil {
 		return err
