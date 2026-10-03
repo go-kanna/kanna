@@ -45,7 +45,7 @@ type Employee struct {
 	Nicknames []string
 
 	// Revision is owned by the server and has no domain counterpart, so the
-	// directive excludes it with -ignore. The type is generated, so there is
+	// directive excludes it with -exclude. The type is generated, so there is
 	// nowhere here to put a tag.
 	Revision int32
 }

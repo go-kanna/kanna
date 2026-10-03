@@ -217,18 +217,18 @@ func parseTypeRef(s string) (TypeRef, error) {
 func parseFieldRef(s string) (FieldRef, error) {
 	i := strings.LastIndex(s, ".")
 	if i < 0 {
-		return FieldRef{}, fmt.Errorf("invalid -ignore entry %q: want TYPE.FIELD", s)
+		return FieldRef{}, fmt.Errorf("invalid -exclude entry %q: want TYPE.FIELD", s)
 	}
 	typeSpec, field := s[:i], s[i+1:]
 	if !token.IsIdentifier(field) {
-		return FieldRef{}, fmt.Errorf("invalid -ignore entry %q: %q is not a valid field name", s, field)
+		return FieldRef{}, fmt.Errorf("invalid -exclude entry %q: %q is not a valid field name", s, field)
 	}
 	ref, err := parseTypeRef(typeSpec)
 	if err != nil {
-		return FieldRef{}, fmt.Errorf("invalid -ignore entry %q: %w", s, err)
+		return FieldRef{}, fmt.Errorf("invalid -exclude entry %q: %w", s, err)
 	}
 	if ref.Pointer {
-		return FieldRef{}, fmt.Errorf("invalid -ignore entry %q: pointer marker is not allowed", s)
+		return FieldRef{}, fmt.Errorf("invalid -exclude entry %q: pointer marker is not allowed", s)
 	}
 	return FieldRef{Type: ref, Field: field}, nil
 }

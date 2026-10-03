@@ -336,7 +336,7 @@ func init() {
 Then name the pairs to map:
 
 ```go
-//go:generate go tool kanna-mapper -types=model.Employee:*employeev1.Employee -converter-pkg=../lib/converters
+//go:generate go tool kanna-mapper -types=model.Employee:*employeev1.Employee -converters=../lib/converters
 package mapper
 
 import (
@@ -392,7 +392,7 @@ Each destination field takes the first rule that matches.
 | a promoted field                                  | an embedded struct's field, by exact name                  |
 
 A destination field with no source is an error, not a silent zero value. Exclude it with `map:"-"` on the source, or
-`-ignore TYPE.FIELD` when the type is not yours to tag.
+`-exclude TYPE.FIELD` when the type is not yours to tag.
 
 ### How values are converted
 

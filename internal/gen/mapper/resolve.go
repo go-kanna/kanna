@@ -452,7 +452,7 @@ func (r *resolver) conversionError(p *funcPlan, dstField, srcVar *types.Var) {
 		r.pos(dstField), namedLabel(p.src), srcVar.Name(), typeLabel(srcT),
 		namedLabel(p.dst), dstField.Name(), typeLabel(dstT))
 	fmt.Fprintf(&b, "\n\tregister a converter: mapper.Register(func(%s) %s { ... })", typeLabel(srcT), typeLabel(dstT))
-	b.WriteString("\n\tor declare the pair in -types, or exclude the field with map:\"-\" or -ignore")
+	b.WriteString("\n\tor declare the pair in -types, or exclude the field with map:\"-\" or -exclude")
 	if isInterface(srcT) || isInterface(dstT) {
 		b.WriteString("\n\tnote: interface-typed fields (protobuf oneof) are not supported")
 	}
@@ -685,7 +685,7 @@ func structFieldIndex(st *types.Struct, name string) int {
 }
 
 // finalize propagates error-returning through nested mapper calls until
-// stable and reports -ignore entries that matched nothing.
+// stable and reports -exclude entries that matched nothing.
 func (r *resolver) finalize() {
 	for changed := true; changed; {
 		changed = false
@@ -713,7 +713,7 @@ func (r *resolver) finalize() {
 		return strings.Compare(a.PkgPath+a.Type+a.Field, b.PkgPath+b.Type+b.Field)
 	})
 	for _, key := range unused {
-		r.errs = append(r.errs, fmt.Errorf("-ignore entry %s.%s.%s matched nothing", key.PkgPath, key.Type, key.Field))
+		r.errs = append(r.errs, fmt.Errorf("-exclude entry %s.%s.%s matched nothing", key.PkgPath, key.Type, key.Field))
 	}
 }
 
