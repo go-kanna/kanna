@@ -399,10 +399,9 @@ func (r *resolver) unmappedError(p *funcPlan, f *types.Var) {
 // buildFieldPlan resolves the conversion for one field.
 //
 // A read whose type already matches the destination wins, wherever it comes
-// from; only then does the getter's result type come before the raw field. The
-// order matters for a nil-able field wrapped in a getter that returns a value:
-// preferring the getter would turn a nil pointer into a pointer to a zero, which
-// is exactly the distinction the pointer was carrying.
+// from. Otherwise a getter that unwraps a nil-able field is passed over for the
+// field itself: reading through it turns a nil pointer into a zero, which is
+// exactly the distinction the pointer was carrying.
 func (r *resolver) buildFieldPlan(p *funcPlan, dstField, srcVar *types.Var) (fieldPlan, bool) {
 	cands := readCandidates(p.src, srcVar)
 	dst := types.Unalias(dstField.Type())
@@ -413,6 +412,9 @@ func (r *resolver) buildFieldPlan(p *funcPlan, dstField, srcVar *types.Var) (fie
 		}
 	}
 
+	if len(cands) == 2 && isNilable(cands[1].typ) && !isNilable(cands[0].typ) {
+		cands[0], cands[1] = cands[1], cands[0]
+	}
 	for _, read := range cands {
 		if conv, err := r.resolveOp(read.typ, dstField.Type()); err == nil {
 			return fieldPlan{dstName: dstField.Name(), dstType: dstField.Type(), read: read, conv: conv}, true
@@ -433,6 +435,14 @@ func readCandidates(src types.Type, field *types.Var) []readAccess {
 		}
 	}
 	return append(cands, readAccess{name: field.Name(), typ: field.Type()})
+}
+
+func isNilable(t types.Type) bool {
+	switch types.Unalias(t).Underlying().(type) {
+	case *types.Pointer, *types.Slice, *types.Map:
+		return true
+	}
+	return false
 }
 
 func (r *resolver) conversionError(p *funcPlan, dstField, srcVar *types.Var) {

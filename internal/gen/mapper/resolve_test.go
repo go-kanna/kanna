@@ -156,26 +156,33 @@ func TestResolvePlansEmbeddedDstError(t *testing.T) {
 	}
 }
 
-// A getter returning a value must not be preferred over the field it wraps when
-// the field's own type already matches: reading through it turns a nil pointer
-// into a pointer to a zero, which is the distinction the pointer was carrying.
-func TestResolvePlansPrefersTheMatchingRead(t *testing.T) {
+// A getter returning a value must not be preferred over the pointer field it
+// wraps, whether or not a converter sits in between: reading through it turns a
+// nil pointer into a pointer to a zero, which is the distinction the pointer was
+// carrying.
+func TestResolvePlansPrefersTheNilableRead(t *testing.T) {
 	t.Parallel()
 
 	opt := fixture(t, "optional")
+	table, err := mapper.ExtractConverters([]*packages.Package{opt}, "example.com/output")
+	if err != nil {
+		t.Fatalf("extract converters: %v", err)
+	}
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset: opt.Fset,
 		Pairs: []mapper.PairSpec{
 			{Src: types.NewPointer(namedType(t, opt, "Wire")), Dst: namedType(t, opt, "Domain")},
 		},
+		Conv:      table,
 		Direction: mapper.DirectionTo,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `WireToDomain(*optional.Wire) optional.Domain
-  Note = .Note direct`
+	want := `WireToDomain(*optional.Wire) (optional.Domain, error)
+  Note = .Note direct
+  Count = .Count deref(addr(convE:Atoi))`
 	if got := mapper.DescribePlan(plans[0]); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
