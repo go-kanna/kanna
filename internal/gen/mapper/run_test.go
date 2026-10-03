@@ -100,6 +100,28 @@ func TestRunGenerate(t *testing.T) {
 	}
 }
 
+// A run whose selectors are all import paths needs nothing from the directory it
+// starts in, so a directory without Go files must not stop it.
+func TestRunOutsideAPackage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	files := baseModule(
+		"package model\n\ntype User struct {\n\tName string\n}\n",
+		"package wire\n\ntype User struct {\n\tName string\n}\n",
+	)
+	delete(files, "doc.go")
+	writeModule(t, dir, files)
+
+	code, _, stderr := runCLI(t, dir, pairFlag, "-direction=to", "-destination=./out", "-package=out")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+	if got := readGenerated(t, dir); !strings.Contains(got, "func UserToWire(src model.User) wire.User {") {
+		t.Errorf("generated file lacks the mapping:\n%s", got)
+	}
+}
+
 // A tag on a promoted field keeps applying. Copying the field anyway would leak
 // data the author excluded, with nothing on stderr to say so.
 func TestRunPromotedFieldKeepsItsTag(t *testing.T) {
