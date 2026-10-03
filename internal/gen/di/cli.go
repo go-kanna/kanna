@@ -144,40 +144,23 @@ func (c CLI) Run(args []string) int {
 		fmt.Fprintln(c.Out, "providers:", len(providers))
 	}
 
-	idx := NewIndex(providers)
-	opts := Options{Must: mustFlag}
+	plans, ds := BuildAll(containers, providers, Options{Must: mustFlag})
+	c.printDiags(ds)
+	failed := diag.HasErrors(ds)
 
 	// Render every package before touching the disk. A run that fails partway
 	// through should leave the tree exactly as it found it, rather than updating
 	// the packages it got to first and leaving the rest stale.
-	var (
-		pending []pendingFile
-		failed  bool
-	)
-
-	for _, group := range groupByPackage(containers) {
-		var plans []Plan
-		for _, container := range group.containers {
-			pl, ds := Build(container, idx, opts)
-			c.printDiags(ds)
-			if diag.HasErrors(ds) {
-				failed = true
-				continue
-			}
-			plans = append(plans, pl)
-		}
-		if len(plans) == 0 {
-			continue
-		}
-
-		out, err := Emit(group.pkgName, plans)
+	var pending []pendingFile
+	for _, group := range groupByPackage(plans) {
+		out, err := Emit(group.pkgName, group.plans)
 		if err != nil {
 			fmt.Fprintln(c.Err, err)
 			failed = true
 			continue
 		}
 
-		outDir := filepath.Dir(group.containers[0].Pos.Filename)
+		outDir := filepath.Dir(group.plans[0].Container.Pos.Filename)
 		pending = append(pending, pendingFile{
 			path: filepath.Join(outDir, defaultOutputFile),
 			data: out,
@@ -224,32 +207,28 @@ type pendingFile struct {
 	data []byte
 }
 
-// containerGroup is the set of containers that live in a single package and will
-// be emitted into one .go file together.
-type containerGroup struct {
-	pkgPath    string
-	pkgName    string
-	containers []Container
+// planGroup is the set of plans whose containers live in a single package and
+// will be emitted into one .go file together.
+type planGroup struct {
+	pkgName string
+	plans   []Plan
 }
 
-// groupByPackage groups containers by their declaring package, preserving the
-// order in which packages are first seen.
-func groupByPackage(cs []Container) []containerGroup {
+// groupByPackage groups plans by their container's package, preserving the order
+// in which packages are first seen.
+func groupByPackage(plans []Plan) []planGroup {
 	idxOf := map[string]int{}
-	var out []containerGroup
+	var out []planGroup
 
-	for _, c := range cs {
+	for _, pl := range plans {
+		c := pl.Container
 		i, ok := idxOf[c.PkgPath]
 		if !ok {
 			idxOf[c.PkgPath] = len(out)
-			out = append(out, containerGroup{
-				pkgPath:    c.PkgPath,
-				pkgName:    c.PkgName,
-				containers: []Container{c},
-			})
+			out = append(out, planGroup{pkgName: c.PkgName, plans: []Plan{pl}})
 			continue
 		}
-		out[i].containers = append(out[i].containers, c)
+		out[i].plans = append(out[i].plans, pl)
 	}
 	return out
 }

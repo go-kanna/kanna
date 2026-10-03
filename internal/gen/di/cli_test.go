@@ -243,6 +243,62 @@ func (f *Facade) Greet() string { return f.inner.Greet() }
 	}
 }
 
+// A container may depend on another container generated in the same run. Its
+// constructor does not exist yet on the first run, but everything about it is
+// already decided, so the run must not need a second pass to see it.
+func TestCLI_ResolvesAgainstContainersOfTheSameRun(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+import "example.com/app/handler"
+
+type Root struct {
+	Account *handler.Account ` + "`di:\"\"`" + `
+}
+`,
+		"handler/handler.go": `package handler
+
+type DB struct{}
+
+func NewDB() (*DB, error) { return nil, nil }
+
+type Account struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+
+	generated := readFile(t, filepath.Join(dir, "di_gen.go"))
+	for _, want := range []string{
+		"func NewRoot() (*Root, error) {",
+		"handler.NewAccount()",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated file does not contain %q:\n%s", want, generated)
+		}
+	}
+
+	// The second run sees the emitted constructor as well; it must not count it
+	// twice.
+	errOut.Reset()
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("second run: exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+	if second := readFile(t, filepath.Join(dir, "di_gen.go")); second != generated {
+		t.Errorf("output changed on the second run:\n--- first ---\n%s\n--- second ---\n%s", generated, second)
+	}
+}
+
 func TestCLI_ReportsMissingProvider(t *testing.T) {
 	t.Parallel()
 
