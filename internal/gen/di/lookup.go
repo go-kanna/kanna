@@ -91,6 +91,16 @@ func TypeKey(t types.Type) string {
 	return types.TypeString(t, qualifyByPath)
 }
 
+// sameType reports whether two types are the same for resolution purposes.
+//
+// It compares by TypeKey rather than types.Identical. A package loaded with its
+// tests is type-checked twice, once plain and once as its test variant, and a
+// provider taken from the variant must still match a field declared against the
+// plain package, whose named types are distinct objects to go/types.
+func sameType(a, b types.Type) bool {
+	return TypeKey(a) == TypeKey(b)
+}
+
 // TypeString renders a type with package paths included, for use in diagnostics
 // where an unambiguous type rendering is preferred.
 func TypeString(t types.Type) string {

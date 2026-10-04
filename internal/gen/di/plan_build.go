@@ -270,7 +270,7 @@ func buildOverrides(c Container, idx *Index) (map[string]*Provider, []diag.Diag)
 		}
 		var matched []*Provider
 		for _, p := range candidates {
-			if p.Result != nil && types.Identical(p.Result, f.Type) {
+			if p.Result != nil && sameType(p.Result, f.Type) {
 				matched = append(matched, p)
 			}
 		}

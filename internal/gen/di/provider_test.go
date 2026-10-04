@@ -306,3 +306,83 @@ func providerNames(providers []di.Provider) []string {
 	}
 	return names
 }
+
+func TestProviders_MarkTestFiles(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadPackage(t, map[string]string{
+		"app.go":       "package test\n\ntype DB struct{}\n\nfunc NewDB() *DB { return nil }\n",
+		"fake_test.go": "package test\n\nfunc NewFakeDB() *DB { return nil }\n",
+	})
+	providers, ds := di.Providers([]*packages.Package{pkg})
+	assertNoErrors(t, ds)
+
+	if len(providers) != 2 {
+		t.Fatalf("providers = %v, want NewDB and NewFakeDB", providerNames(providers))
+	}
+	for _, p := range providers {
+		if want := p.FuncName == "NewFakeDB"; p.Test != want {
+			t.Errorf("%s: Test = %t, want %t", p.FuncName, p.Test, want)
+		}
+	}
+}
+
+// A provider from a test file is compiled into one test binary, so only the
+// containers in that binary may call it.
+func TestProvider_UsableBy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		provider  di.Provider
+		container di.Container
+		want      bool
+	}{
+		{
+			name:      "a plain provider serves every container",
+			provider:  di.Provider{PkgPath: "example.com/app"},
+			container: di.Container{PkgPath: "example.com/other"},
+			want:      true,
+		},
+		{
+			name:      "a test provider serves the test containers of its package",
+			provider:  di.Provider{PkgPath: "example.com/app", Test: true},
+			container: di.Container{PkgPath: "example.com/app", Test: true},
+			want:      true,
+		},
+		{
+			name:      "and those of the external test package",
+			provider:  di.Provider{PkgPath: "example.com/app", Test: true},
+			container: di.Container{PkgPath: "example.com/app_test", Test: true},
+			want:      true,
+		},
+		{
+			name:      "but not a container of the package proper",
+			provider:  di.Provider{PkgPath: "example.com/app", Test: true},
+			container: di.Container{PkgPath: "example.com/app"},
+			want:      false,
+		},
+		{
+			name:      "nor the tests of another package",
+			provider:  di.Provider{PkgPath: "example.com/app", Test: true},
+			container: di.Container{PkgPath: "example.com/other", Test: true},
+			want:      false,
+		},
+		{
+			name:      "an external test provider does not reach the package's own tests",
+			provider:  di.Provider{PkgPath: "example.com/app_test", Test: true},
+			container: di.Container{PkgPath: "example.com/app", Test: true},
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := di.UsableBy(tt.provider, tt.container); got != tt.want {
+				t.Errorf("usableBy = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}

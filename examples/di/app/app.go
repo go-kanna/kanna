@@ -2,10 +2,9 @@
 // and directives it understands.
 //
 // The main function lives in cmd/demo, outside the packages the directive
-// below scans. kanna-di needs the packages it loads to type-check, so keeping
-// the callers of the generated constructors out of the scanned tree means a
-// stale di_gen.go can always be deleted and regenerated instead of wedging
-// the build.
+// below scans. That is a choice, not a requirement: a call to a constructor
+// kanna-di is about to write does not stop the run, which is how the test in
+// app_test.go can call newTestEnv before di_gen_test.go exists.
 //
 // Regenerate with:
 //

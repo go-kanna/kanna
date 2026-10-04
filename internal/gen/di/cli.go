@@ -17,7 +17,13 @@ import (
 )
 
 // defaultOutputFile is the name given to the generated file in each package.
-const defaultOutputFile = "di_gen.go"
+// Containers declared in _test.go files go to testOutputFile instead, which
+// keeps their constructors out of the package proper and lets an external test
+// package hold containers of its own.
+const (
+	defaultOutputFile = "di_gen.go"
+	testOutputFile    = "di_gen_test.go"
+)
 
 // CLI is the command-line entry point for the DI generator. Out and Err default
 // to os.Stdout/os.Stderr when constructed via NewCLI.
@@ -96,7 +102,7 @@ func (c CLI) Run(args []string) int {
 	}
 
 	if verbose {
-		fmt.Fprintln(c.Out, "output:", defaultOutputFile)
+		fmt.Fprintf(c.Out, "output: %s, %s\n", defaultOutputFile, testOutputFile)
 		if tagsRaw != "" {
 			fmt.Fprintln(c.Out, "tags:", tagsRaw)
 		}
@@ -108,6 +114,9 @@ func (c CLI) Run(args []string) int {
 	res, dropped, err := load(patterns, packages.Config{
 		Dir:       c.Dir,
 		BuildTags: splitTags(tagsRaw),
+		// Test files take part: a container declared in one gets its constructor
+		// in testOutputFile, and providers declared there serve such containers.
+		Tests: true,
 	})
 	if err != nil {
 		fmt.Fprintln(c.Err, err)
@@ -118,16 +127,21 @@ func (c CLI) Run(args []string) int {
 	}
 
 	structs, dsS := scan.Structs(res.Packages)
+
+	// Containers come before the type-error gate: the errors this run is about
+	// to fix are calls to the constructors it generates, and only the containers
+	// say which those are.
+	containers, dsC := Containers(res.Fset, structs)
+	dsS = dropUndefinedConstructors(dsS, containers, res.Packages)
 	c.printDiags(dsS)
 	if diag.HasErrors(dsS) {
 		for _, path := range dropped {
-			fmt.Fprintf(c.Err, "note: %s is stale and was set aside; code calling its constructors has to "+
-				"move out of the scanned packages, or delete the file and regenerate\n", path)
+			fmt.Fprintf(c.Err, "note: %s is stale and was set aside; it is regenerated once the errors above are fixed\n",
+				path)
 		}
 		return exit.Error
 	}
 
-	containers, dsC := Containers(res.Fset, structs)
 	c.printDiags(dsC)
 	if diag.HasErrors(dsC) {
 		return exit.Error
@@ -156,6 +170,7 @@ func (c CLI) Run(args []string) int {
 	// through should leave the tree exactly as it found it, rather than updating
 	// the packages it got to first and leaving the rest stale.
 	var pending []pendingFile
+	claimed := map[string]string{} // output path → the package name written there
 	for _, group := range groupByPackage(plans) {
 		out, err := Emit(group.pkgName, group.plans)
 		if err != nil {
@@ -164,11 +179,17 @@ func (c CLI) Run(args []string) int {
 			continue
 		}
 
-		outDir := filepath.Dir(group.plans[0].Container.Pos.Filename)
-		pending = append(pending, pendingFile{
-			path: filepath.Join(outDir, defaultOutputFile),
-			data: out,
-		})
+		path := filepath.Join(filepath.Dir(group.plans[0].Container.Pos.Filename), group.outputFile())
+		// A directory's in-package and external test packages would both write
+		// testOutputFile, and one file declares one package.
+		if other, taken := claimed[path]; taken {
+			fmt.Fprintf(c.Err, "%s: both %s and %s declare test containers; "+
+				"keep a directory's test containers in one package\n", path, other, group.pkgName)
+			failed = true
+			continue
+		}
+		claimed[path] = group.pkgName
+		pending = append(pending, pendingFile{path: path, data: out})
 	}
 
 	if failed {
@@ -212,24 +233,39 @@ type pendingFile struct {
 }
 
 // planGroup is the set of plans whose containers live in a single package and
-// will be emitted into one .go file together.
+// will be emitted into one .go file together. Containers declared in test files
+// form a group of their own, since they go to a different file.
 type planGroup struct {
 	pkgName string
+	test    bool
 	plans   []Plan
 }
 
-// groupByPackage groups plans by their container's package, preserving the order
-// in which packages are first seen.
+func (g planGroup) outputFile() string {
+	if g.test {
+		return testOutputFile
+	}
+	return defaultOutputFile
+}
+
+// groupByPackage groups plans by their container's package and by whether the
+// container is declared in a test file, preserving the order in which groups are
+// first seen.
 func groupByPackage(plans []Plan) []planGroup {
-	idxOf := map[string]int{}
+	type key struct {
+		pkgPath string
+		test    bool
+	}
+	idxOf := map[key]int{}
 	var out []planGroup
 
 	for _, pl := range plans {
 		c := pl.Container
-		i, ok := idxOf[c.PkgPath]
+		k := key{pkgPath: c.PkgPath, test: c.Test}
+		i, ok := idxOf[k]
 		if !ok {
-			idxOf[c.PkgPath] = len(out)
-			out = append(out, planGroup{pkgName: c.PkgName, plans: []Plan{pl}})
+			idxOf[k] = len(out)
+			out = append(out, planGroup{pkgName: c.PkgName, test: c.Test, plans: []Plan{pl}})
 			continue
 		}
 		out[i].plans = append(out[i].plans, pl)

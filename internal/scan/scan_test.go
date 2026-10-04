@@ -633,3 +633,49 @@ func assertNoErrors(t *testing.T, ds []diag.Diag) {
 		t.Fatalf("unexpected error diagnostics: %s", diag.Format(ds))
 	}
 }
+
+// go list -export builds the package, and its compile errors come back as one
+// list error that repeats what go/types already reported with positions.
+func TestStructs_DropsCompilerOutputThatRepeatsTypeErrors(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadFile(t, "package test\n")
+	pkg.Errors = []packages.Error{
+		{
+			Kind: packages.ListError,
+			Msg:  "# example.com/app [example.com/app.test]\n./env_test.go:11:6: undefined: newEnv\n",
+		},
+		{Kind: packages.TypeError, Pos: "/work/app/env_test.go:11:6", Msg: "undefined: newEnv"},
+	}
+
+	_, ds := scan.Structs([]*packages.Package{pkg})
+
+	messages := make([]string, 0, len(ds))
+	for _, d := range ds {
+		messages = append(messages, d.Message)
+	}
+	if want := []string{"undefined: newEnv"}; !slices.Equal(messages, want) {
+		t.Errorf("messages = %q, want %q", messages, want)
+	}
+}
+
+// A block with a line go/types did not report is not an echo, and stays.
+func TestStructs_KeepsCompilerOutputWithUnmatchedLines(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadFile(t, "package test\n")
+	block := "# example.com/app\n./a.go:1:1: undefined: x\n./b.go:2:2: compiler-only complaint\n"
+	pkg.Errors = []packages.Error{
+		{Kind: packages.ListError, Msg: block},
+		{Kind: packages.TypeError, Pos: "/work/app/a.go:1:1", Msg: "undefined: x"},
+	}
+
+	_, ds := scan.Structs([]*packages.Package{pkg})
+
+	if got, want := len(ds), 2; got != want {
+		t.Fatalf("diags = %d, want %d: %s", got, want, diag.Format(ds))
+	}
+	if got := ds[0].Message; got != block {
+		t.Errorf("first diag = %q, want the whole compiler block", got)
+	}
+}

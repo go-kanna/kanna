@@ -14,7 +14,9 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -103,7 +105,7 @@ func preferred(a, b *packages.Package) bool {
 
 func structsInPackage(pkg *packages.Package) ([]ir.Struct, []diag.Diag) {
 	var diags []diag.Diag
-	for _, e := range pkg.Errors {
+	for _, e := range loadErrors(pkg) {
 		diags = append(diags, diag.Errorf(errorPosition(e), "%s", e.Msg))
 	}
 
@@ -309,4 +311,59 @@ func positionOf(pkg *packages.Package, pos token.Pos) token.Position {
 		return token.Position{}
 	}
 	return pkg.Fset.Position(pos)
+}
+
+// loadErrors returns the errors go/packages reported for pkg, minus compiler
+// output that only repeats them.
+//
+// To hand over the types of a package's dependencies, go/packages has go list
+// build export data, and when that build fails the compiler's diagnostics come
+// back as a single list error: a "# <package>" line followed by
+// "file:line:col: message" lines. The package is type-checked from source as
+// well, and go/types reports each of those again, with a position. Only a block
+// whose every line has such a twin is dropped, so whatever the compiler alone
+// noticed is still reported.
+func loadErrors(pkg *packages.Package) []packages.Error {
+	typed := make(map[string]bool)
+	for _, e := range pkg.Errors {
+		if e.Kind == packages.TypeError {
+			typed[errorKey(e.Pos, e.Msg)] = true
+		}
+	}
+
+	kept := make([]packages.Error, 0, len(pkg.Errors))
+	for _, e := range pkg.Errors {
+		if e.Kind == packages.ListError && echoesTypeErrors(e.Msg, typed) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
+}
+
+// compilerLine matches one line of compiler output, "file:line:col: message".
+var compilerLine = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.+)$`)
+
+// echoesTypeErrors reports whether msg is a compiler diagnostic block whose
+// every line is already among the type errors keyed by errorKey.
+func echoesTypeErrors(msg string, typed map[string]bool) bool {
+	lines := strings.Split(strings.TrimSpace(msg), "\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "# ") {
+		return false
+	}
+	for _, line := range lines[1:] {
+		m := compilerLine.FindStringSubmatch(line)
+		if m == nil || !typed[errorKey(m[1]+":"+m[2]+":"+m[3], m[4])] {
+			return false
+		}
+	}
+	return true
+}
+
+// errorKey identifies an error by file name, line, column and message. The
+// directory is left out because the compiler writes paths relative to the
+// working directory while go/types writes them absolute.
+func errorKey(pos, msg string) string {
+	p := errorPosition(packages.Error{Pos: pos})
+	return filepath.Base(p.Filename) + ":" + strconv.Itoa(p.Line) + ":" + strconv.Itoa(p.Column) + ": " + msg
 }
