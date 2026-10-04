@@ -430,10 +430,7 @@ func TestResolvePlansPerPairDirection(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var names []string
-	for _, p := range plans {
-		names = append(names, mapper.PlanName(p))
-	}
+	names := planNames(plans)
 	want := []string{"EmployeeToProtolike", "AddressToProtolike", "AddressFromProtolike"}
 	if !slices.Equal(names, want) {
 		t.Errorf("plans = %v, want %v", names, want)
@@ -457,12 +454,17 @@ func TestResolvePlansMergesDirections(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var names []string
-	for _, p := range plans {
-		names = append(names, mapper.PlanName(p))
-	}
+	names := planNames(plans)
 	want := []string{"AddressToProtolike", "AddressFromProtolike"}
 	if !slices.Equal(names, want) {
 		t.Errorf("plans = %v, want %v", names, want)
 	}
+}
+
+func planNames(plans []*mapper.FuncPlan) []string {
+	names := make([]string, 0, len(plans))
+	for _, p := range plans {
+		names = append(names, mapper.PlanName(p))
+	}
+	return names
 }
