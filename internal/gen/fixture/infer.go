@@ -125,26 +125,32 @@ func (inf inferrer) fieldExpr(f ir.Field, owner string) value {
 	return typeExpr(typ)
 }
 
-// externalValues maps a named type declared in another package, keyed by
-// "<import path>.<type name>", to the value that fills it. Everything here is
-// driven by gofakeit so a single gofakeit.Seed still makes fixtures
-// reproducible.
-var externalValues = map[string]value{
-	"time.Time": faker("gofakeit.Date()"),
-	"github.com/google/uuid.UUID": {
-		expr: "uuid.MustParse(gofakeit.UUID())",
-		pkgs: []string{gofakeitImport, uuidImport},
-	},
+// external is what fills a named type declared in another package: the value,
+// and the gofakeit template that selects the same value when written as a tag.
+type external struct {
+	value    value
+	template string
 }
 
-// uuidImport is the module the UUID rule above emits a call into.
-const uuidImport = "github.com/google/uuid"
+// externalValues maps a named type declared in another package, keyed by
+// "<import path>.<type name>", to what fills it. Everything here is driven by
+// gofakeit so a single gofakeit.Seed still makes fixtures reproducible, which
+// is why a UUID is parsed from a faked string rather than drawn from the
+// package's own generator.
+var externalValues = map[string]external{
+	"time.Time":                   {value: faker("gofakeit.Date()"), template: "{date}"},
+	"uuid.UUID":                   {value: uuidValue("uuid"), template: "{uuid}"},
+	"github.com/google/uuid.UUID": {value: uuidValue("github.com/google/uuid"), template: "{uuid}"},
+}
 
-// externalTemplates maps a gofakeit template to the external type it fills, so
-// that an explicit tag resolves to the same value the type rule would pick.
-var externalTemplates = map[string]string{
-	"{date}": "time.Time",
-	"{uuid}": "github.com/google/uuid.UUID",
+// uuidValue fills a UUID through the package at importPath: the standard
+// library's uuid (Go 1.27) or github.com/google/uuid, which share their name
+// and their MustParse.
+func uuidValue(importPath string) value {
+	return value{
+		expr: "uuid.MustParse(gofakeit.UUID())",
+		pkgs: []string{gofakeitImport, importPath},
+	}
 }
 
 // externalName returns the "<import path>.<type name>" key of a named type
@@ -163,17 +169,16 @@ func externalName(typ types.Type) (string, bool) {
 	return obj.Pkg().Path() + "." + obj.Name(), true
 }
 
-// externalValue returns the value registered for a named type from another
-// package.
-func externalValue(typ types.Type) (value, bool) {
+// externalValue returns what fills a named type from another package.
+func externalValue(typ types.Type) (external, bool) {
 	name, ok := externalName(typ)
 	if !ok {
-		return value{}, false
+		return external{}, false
 	}
 
-	v, ok := externalValues[name]
+	ext, ok := externalValues[name]
 
-	return v, ok
+	return ext, ok
 }
 
 // basicOf resolves typ to its basic type. For a named basic type declared in
@@ -237,10 +242,8 @@ func (inf inferrer) tagExpr(tag string, typ types.Type) value {
 		return value{}
 	}
 
-	if want, ok := externalTemplates[tag]; ok {
-		if name, ok := externalName(typ); ok && name == want {
-			return externalValues[want]
-		}
+	if ext, ok := externalValue(typ); ok && ext.template == tag {
+		return ext.value
 	}
 
 	b, qualifier, ok := inf.basicOf(typ)
@@ -495,8 +498,8 @@ func nameExpr(name string, typ types.Type) (string, bool) {
 // typeExpr applies the type-based rules. Pointers, slices, maps, interfaces,
 // channels, funcs, and named non-struct types all fall back to zero values.
 func typeExpr(typ types.Type) value {
-	if v, ok := externalValue(typ); ok {
-		return v
+	if ext, ok := externalValue(typ); ok {
+		return ext.value
 	}
 
 	expr := basicExpr(typ)

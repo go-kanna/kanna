@@ -33,6 +33,13 @@ var (
 		"UUID",
 		types.NewArray(types.Typ[types.Byte], 16),
 	)
+	// stdUUID is the uuid.UUID the standard library gained in Go 1.27. Built by
+	// hand, so the test runs on older toolchains too.
+	stdUUID = namedBasic(
+		types.NewPackage("uuid", "uuid"),
+		"UUID",
+		types.NewArray(types.Typ[types.Byte], 16),
+	)
 )
 
 const uuidExpr = "uuid.MustParse(gofakeit.UUID())"
@@ -54,6 +61,7 @@ func TestTagExpr(t *testing.T) {
 		{name: "date template on time", tag: "{date}", typ: timeTime, want: "gofakeit.Date()"},
 		{name: "date template on string", tag: "{date}", typ: types.Typ[types.String], want: `mustGenerate("{date}")`},
 		{name: "uuid template on uuid", tag: "{uuid}", typ: uuidUUID, want: uuidExpr},
+		{name: "uuid template on standard library uuid", tag: "{uuid}", typ: stdUUID, want: uuidExpr},
 		{name: "uuid template on string", tag: "{uuid}", typ: types.Typ[types.String], want: "gofakeit.UUID()"},
 		{name: "date template on uuid", tag: "{date}", typ: uuidUUID, want: ""},
 		{
@@ -221,6 +229,7 @@ func TestTypeExpr(t *testing.T) {
 		{name: "float64", typ: types.Typ[types.Float64], want: "gofakeit.Float64()"},
 		{name: "time", typ: timeTime, want: "gofakeit.Date()"},
 		{name: "uuid", typ: uuidUUID, want: uuidExpr},
+		{name: "standard library uuid", typ: stdUUID, want: uuidExpr},
 		{name: "pointer to uuid", typ: types.NewPointer(uuidUUID), want: ""},
 		{name: "named string", typ: namedBasic(modelPkg, "Status", types.Typ[types.String]), want: ""},
 		{name: "pointer", typ: types.NewPointer(types.Typ[types.String]), want: ""},
@@ -313,6 +322,34 @@ func TestPlans(t *testing.T) {
 	// gofakeit is reported like any other import rather than assumed by the
 	// emitter, so a run whose expressions never call it does not import it.
 	wantImports := []string{"github.com/brianvoe/gofakeit/v7", "github.com/google/uuid"}
+	if !reflect.DeepEqual(imports, wantImports) {
+		t.Errorf("Plans() imports = %v, want %v", imports, wantImports)
+	}
+}
+
+// The two UUID rules emit the same call, so the import path is the only thing
+// telling them apart.
+func TestPlansStandardLibraryUUID(t *testing.T) {
+	t.Parallel()
+
+	targets := []fixture.Target{
+		{Name: "Record", Fields: []ir.Field{
+			{Name: "ID", Type: stdUUID},
+		}},
+	}
+
+	want := []fixture.Plan{
+		{Name: "Record", Fields: []fixture.Assignment{
+			{Name: "ID", Expr: uuidExpr},
+		}},
+	}
+
+	got, imports := fixture.Plans(targets, pkgPath, "model")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Plans() = %+v, want %+v", got, want)
+	}
+
+	wantImports := []string{"github.com/brianvoe/gofakeit/v7", "uuid"}
 	if !reflect.DeepEqual(imports, wantImports) {
 		t.Errorf("Plans() imports = %v, want %v", imports, wantImports)
 	}
