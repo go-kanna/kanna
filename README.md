@@ -376,6 +376,17 @@ func EmployeeFromEmployeev1(src *employeev1.Employee) (model.Employee, error) {
 The direction that can fail returns an error naming the field that produced it. The direction that cannot, does not.
 Nil-safe getters are used when the wire type has them.
 
+A pair written `SRC:DST` gets the functions `-direction` asks for, both by default. To generate one direction only for a
+particular pair, write it with an arrow: `SRC->DST` maps `SRC` to `DST`, `SRC<-DST` maps `DST` into `SRC`. A request
+type that only comes in and a response type that only goes out can then share one package, without converters or
+exclusions for directions nothing calls:
+
+```sh
+kanna-mapper -types='model.Contents<-*householdv1.CreateHouseholdRequest,model.Household->*householdv1.Household'
+```
+
+Declaring the same pair once with each arrow is the same as `SRC:DST` with both directions.
+
 `mapper.Register` is never executed by the generator: the calls are read statically, and the functions they name are
 called directly. The registry also works at run time through `mapper.Convert` if you want it.
 
@@ -420,8 +431,8 @@ When a pair type is a `//kanna:table` struct, the mapper reads the same orm tags
 
 - A relation field (`has_many`, `belongs_to`, ...) with no counterpart in the wire type is skipped silently. It is a
   query artifact, not row data, so it no longer needs a `map:"-"`.
-- With `-direction to`, a persisted column the To function never reads gets a warning — that is the one mode where a
-  schema-backed field can drop out of the API silently. Map it, tag it `map:"-"`, or pass `-exclude` to say the
+- When only the To function is generated for a pair, a persisted column it never reads gets a warning — without the
+  From function demanding every field, that is where a schema-backed field can drop out of the API silently. Map it, tag it `map:"-"`, or pass `-exclude` to say the
   omission is deliberate.
 - A malformed orm tag never fails the mapper; enforcing tags is kanna-orm's job. It only costs this awareness, with a
   warning.
@@ -430,15 +441,15 @@ Packages without orm tags are untouched.
 
 ### Flags
 
-| Flag                    | Meaning                                                        |
-|-------------------------|----------------------------------------------------------------|
-| `-types <SRC:DST>`      | pairs to map, comma-separated; repeatable. `*` marks a pointer |
-| `-converters <pkg>`     | package holding the `mapper.Register` calls; repeatable        |
-| `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                      |
-| `-destination <dir>`    | output directory for `mapper_gen.go` (default: `.`)            |
-| `-direction <dir>`      | `both` (default), `to`, or `from`                              |
-| `-package <name>`       | output package name (default: `$GOPACKAGE`)                    |
-| `-check`                | verify the output is up to date instead of writing it          |
+| Flag                    | Meaning                                                                                       |
+|-------------------------|-----------------------------------------------------------------------------------------------|
+| `-types <SRC:DST>`      | pairs to map, comma-separated; repeatable. `*` marks a pointer, `->`/`<-` one direction only  |
+| `-converters <pkg>`     | package holding the `mapper.Register` calls; repeatable                                       |
+| `-exclude <TYPE.FIELD>` | destination fields to exclude; repeatable                                                     |
+| `-destination <dir>`    | output directory for `mapper_gen.go` (default: `.`)                                           |
+| `-direction <dir>`      | `both` (default), `to`, or `from`, for pairs written `SRC:DST`                                |
+| `-package <name>`       | output package name (default: `$GOPACKAGE`)                                                   |
+| `-check`                | verify the output is up to date instead of writing it                                         |
 
 ### Example
 

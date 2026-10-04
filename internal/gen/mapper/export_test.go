@@ -52,6 +52,11 @@ var ResolvePlans = resolvePlans
 // TypeConvertible exposes typeConvertible for tests.
 var TypeConvertible = typeConvertible
 
+// PlanName exposes the generated function name of a plan for tests.
+func PlanName(p *funcPlan) string {
+	return p.name
+}
+
 // DescribePlan exposes funcPlan.describe for tests.
 func DescribePlan(p *funcPlan) string {
 	return p.describe()
@@ -90,4 +95,15 @@ func (t converterTable) LookupInfo(src, dst types.Type) (ConverterInfo, bool) {
 // Len reports the number of registered converters for tests.
 func (t converterTable) Len() int {
 	return len(t.converters)
+}
+
+// WithDirection sets the direction of every pair, as -direction does for
+// SRC:DST pairs.
+func WithDirection(pairs []PairSpec, d Direction) []PairSpec {
+	out := make([]PairSpec, len(pairs))
+	for i, p := range pairs {
+		p.Direction = d
+		out[i] = p
+	}
+	return out
 }

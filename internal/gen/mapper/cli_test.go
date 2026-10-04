@@ -79,6 +79,27 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			name: "per-pair directions",
+			args: []string{"-types=model.A->*pb.A,model.B<-*pb.B,model.C:pb.C", "-direction=to"},
+			want: mapper.Config{
+				Pairs: []mapper.TypePair{
+					{
+						Src:       mapper.TypeRef{Pkg: "model", Name: "A"},
+						Dst:       mapper.TypeRef{Pkg: "pb", Name: "A", Pointer: true},
+						Direction: mapper.DirectionTo,
+					},
+					{
+						Src:       mapper.TypeRef{Pkg: "model", Name: "B"},
+						Dst:       mapper.TypeRef{Pkg: "pb", Name: "B", Pointer: true},
+						Direction: mapper.DirectionFrom,
+					},
+					{Src: mapper.TypeRef{Pkg: "model", Name: "C"}, Dst: mapper.TypeRef{Pkg: "pb", Name: "C"}},
+				},
+				Output:    ".",
+				Direction: mapper.DirectionTo,
+			},
+		},
+		{
 			name: "all flags",
 			args: []string{
 				"-types=a.A:b.B",
@@ -133,6 +154,9 @@ func TestParseError(t *testing.T) {
 		{"too many colons", []string{"-types=a.A:b.B:c.C"}, "want SRC:DST"},
 		{"empty src", []string{"-types=:b.B"}, "want SRC:DST"},
 		{"empty dst", []string{"-types=a.A:"}, "want SRC:DST"},
+		{"empty arrow dst", []string{"-types=a.A->"}, "want SRC:DST"},
+		{"mixed separators", []string{"-types=a.A->b.B:c.C"}, "want SRC:DST"},
+		{"both arrows", []string{"-types=a.A<->b.B"}, "want SRC:DST"},
 		{"invalid type name", []string{"-types=model.9x:b.B"}, "not a valid type name"},
 		{"keyword as type name", []string{"-types=model.func:b.B"}, "not a valid type name"},
 		{"keyword as package selector", []string{"-types=type.A:b.B"}, "not a valid package selector"},

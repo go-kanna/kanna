@@ -97,11 +97,12 @@ func parseFlags(args []string, stderr io.Writer) (Config, bool, error) {
 	fs.Usage = func() {}
 
 	var types, converterPkgs, ignores listFlag
-	fs.Var(&types, "types", "comma-separated SRC:DST type pairs; repeatable")
+	fs.Var(&types, "types", "comma-separated SRC:DST, SRC->DST, or SRC<-DST type pairs; repeatable")
 	fs.Var(&converterPkgs, "converters", "package containing mapper.Register calls; repeatable")
 	fs.Var(&ignores, "exclude", "comma-separated destination fields to exclude; repeatable")
 	output := fs.String("destination", ".", "output directory for the generated file")
-	direction := fs.String("direction", string(DirectionBoth), `which functions to generate: "both", "to", or "from"`)
+	direction := fs.String("direction", string(DirectionBoth),
+		`which functions to generate for SRC:DST pairs: "both", "to", or "from"`)
 	pkgName := fs.String("package", "", "output package name (defaults to $GOPACKAGE)")
 	check := fs.Bool("check", false, "verify generated files are up to date instead of writing them")
 	showVersion := fs.Bool("version", false, "print version")
@@ -175,10 +176,32 @@ func buildConfig(types, converterPkgs, ignores []string, output, direction, pkgN
 	return cfg, nil
 }
 
+// pairSeparators maps each -types separator to the direction it asks for. An
+// empty direction defers to -direction.
+var pairSeparators = []struct {
+	sep string
+	dir Direction
+}{
+	{"->", DirectionTo},
+	{"<-", DirectionFrom},
+	{":", ""},
+}
+
 func parsePair(s string) (TypePair, error) {
-	src, dst, ok := strings.Cut(s, ":")
-	if !ok || src == "" || dst == "" || strings.Contains(dst, ":") {
-		return TypePair{}, fmt.Errorf("invalid -types entry %q: want SRC:DST", s)
+	var src, dst string
+	var dir Direction
+	found := 0
+	for _, ps := range pairSeparators {
+		n := strings.Count(s, ps.sep)
+		if n == 0 {
+			continue
+		}
+		found += n
+		src, dst, _ = strings.Cut(s, ps.sep)
+		dir = ps.dir
+	}
+	if found != 1 || src == "" || dst == "" {
+		return TypePair{}, fmt.Errorf("invalid -types entry %q: want SRC:DST, SRC->DST, or SRC<-DST", s)
 	}
 	srcRef, err := parseTypeRef(src)
 	if err != nil {
@@ -188,7 +211,7 @@ func parsePair(s string) (TypePair, error) {
 	if err != nil {
 		return TypePair{}, fmt.Errorf("invalid -types entry %q: %w", s, err)
 	}
-	return TypePair{Src: srcRef, Dst: dstRef}, nil
+	return TypePair{Src: srcRef, Dst: dstRef, Direction: dir}, nil
 }
 
 func parseTypeRef(s string) (TypeRef, error) {
@@ -270,10 +293,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  -types <SRC:DST>        type pairs to map, comma-separated; repeatable")
+	fmt.Fprintln(w, "                          SRC->DST maps one way only, SRC<-DST the other")
 	fmt.Fprintln(w, "  -converters <pkg>       package holding mapper.Register calls; repeatable")
 	fmt.Fprintln(w, "  -exclude <TYPE.FIELD>   destination fields to exclude; repeatable")
 	fmt.Fprintln(w, "  -destination <dir>      output directory for the generated file")
-	fmt.Fprintln(w, `  -direction <dir>        "both" (default), "to", or "from"`)
+	fmt.Fprintln(w, `  -direction <dir>        "both" (default), "to", or "from", for SRC:DST pairs`)
 	fmt.Fprintln(w, "  -package <name>         output package name (defaults to $GOPACKAGE)")
 	fmt.Fprintln(w, "  -check                  verify the output is up to date instead of writing it")
 	fmt.Fprintln(w, "  --version               print version")

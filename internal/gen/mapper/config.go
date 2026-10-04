@@ -30,10 +30,14 @@ func (r TypeRef) IsImportPath() bool {
 	return strings.Contains(r.Pkg, "/")
 }
 
-// TypePair is a single SRC:DST declaration from -types.
+// TypePair is a single declaration from -types: SRC:DST, SRC->DST, or
+// SRC<-DST.
 type TypePair struct {
 	Src TypeRef
 	Dst TypeRef
+	// Direction is what the separator asked for. It is empty for SRC:DST,
+	// which takes -direction.
+	Direction Direction
 }
 
 // FieldRef identifies a struct field from -exclude.

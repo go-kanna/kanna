@@ -17,8 +17,9 @@ import (
 // pairSpec is a type pair to generate mappers for, with types fully
 // resolved. Src and Dst may be pointers to named structs.
 type pairSpec struct {
-	Src types.Type
-	Dst types.Type
+	Src       types.Type
+	Dst       types.Type
+	Direction Direction
 }
 
 // fieldKey identifies a struct field for -exclude matching.
@@ -30,11 +31,10 @@ type fieldKey struct {
 
 // resolveConfig carries everything resolvePlans needs.
 type resolveConfig struct {
-	Fset      *token.FileSet
-	Pairs     []pairSpec
-	Conv      converterTable
-	Ignores   map[fieldKey]bool
-	Direction Direction
+	Fset    *token.FileSet
+	Pairs   []pairSpec
+	Conv    converterTable
+	Ignores map[fieldKey]bool
 	// Tables classifies the //kanna:table structs the pair types belong to,
 	// when any do. It relaxes and warns; it never adds errors.
 	Tables relation.TableSet
@@ -73,17 +73,17 @@ func resolvePlans(cfg resolveConfig) ([]*funcPlan, []string, error) {
 // buildShells creates empty plans for every pair and direction so nested
 // field resolution can reference them before their own fields resolve.
 func (r *resolver) buildShells() {
-	for _, pair := range r.cfg.Pairs {
+	for _, pair := range mergePairs(r.cfg.Pairs) {
 		// Validate both sides so one bad pair reports every problem at once.
 		srcOK := r.validatePairType(pair.Src)
 		dstOK := r.validatePairType(pair.Dst)
 		if !srcOK || !dstOK {
 			continue
 		}
-		if r.cfg.Direction != DirectionFrom {
+		if pair.Direction != DirectionFrom {
 			r.plans = append(r.plans, &funcPlan{name: funcName(pair, false), src: pair.Src, dst: pair.Dst})
 		}
-		if r.cfg.Direction != DirectionTo {
+		if pair.Direction != DirectionTo {
 			r.plans = append(r.plans, &funcPlan{name: funcName(pair, true), src: pair.Dst, dst: pair.Src})
 		}
 	}
@@ -94,6 +94,26 @@ func (r *resolver) buildShells() {
 		}
 		seen[p.name] = true
 	}
+}
+
+// mergePairs folds the declarations of one type pair into a single pair, so
+// that SRC->DST and SRC<-DST written separately amount to both directions
+// rather than to a duplicate.
+func mergePairs(pairs []pairSpec) []pairSpec {
+	var out []pairSpec
+	for _, pair := range pairs {
+		i := slices.IndexFunc(out, func(o pairSpec) bool {
+			return types.Identical(o.Src, pair.Src) && types.Identical(o.Dst, pair.Dst)
+		})
+		if i < 0 {
+			out = append(out, pair)
+			continue
+		}
+		if out[i].Direction != pair.Direction {
+			out[i].Direction = DirectionBoth
+		}
+	}
+	return out
 }
 
 func (r *resolver) validatePairType(t types.Type) bool {
@@ -636,15 +656,15 @@ func isByteSlice(t types.Type) bool {
 	return ok && b.Kind() == types.Uint8
 }
 
-// coverageWarnings reports persisted columns a to-only run never reads. With
-// both directions generated, the From function demands a source for every
-// model field, which subsumes this check; generating only To is the one mode
-// where a schema-backed field can drop out of the wire silently.
+// coverageWarnings reports persisted columns that a one-way function never
+// reads. When the reverse function is generated too, it demands a source for
+// every model field, which subsumes this check; without it, a schema-backed
+// field can drop out of the wire silently.
 func (r *resolver) coverageWarnings() {
-	if r.cfg.Direction != DirectionTo {
-		return
-	}
 	for _, p := range r.plans {
+		if r.hasReverse(p) {
+			continue
+		}
 		srcNamed, srcStruct, ok := structNamed(p.src)
 		if !ok {
 			continue
@@ -679,6 +699,12 @@ func (r *resolver) coverageWarnings() {
 				namedLabel(p.src), col, p.name, namedLabel(p.src), col))
 		}
 	}
+}
+
+func (r *resolver) hasReverse(p *funcPlan) bool {
+	return slices.ContainsFunc(r.plans, func(o *funcPlan) bool {
+		return types.Identical(o.src, p.dst) && types.Identical(o.dst, p.src)
+	})
 }
 
 func structFieldIndex(st *types.Struct, name string) int {

@@ -2,6 +2,7 @@ package mapper_test
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,12 +42,11 @@ func TestResolvePlans(t *testing.T) {
 	pairs, table, model := employeePairs(t)
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  model.Fset,
-		Pairs: pairs,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionBoth),
 		Conv:  table,
 		Ignores: map[mapper.FieldKey]bool{
 			{PkgPath: model.PkgPath, Type: "Employee", Field: "CreatedAt"}: true,
 		},
-		Direction: mapper.DirectionBoth,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -93,10 +93,9 @@ func TestResolvePlansDirectionTo(t *testing.T) {
 
 	pairs, table, model := employeePairs(t)
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      model.Fset,
-		Pairs:     pairs,
-		Conv:      table,
-		Direction: mapper.DirectionTo,
+		Fset:  model.Fset,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionTo),
+		Conv:  table,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -120,9 +119,8 @@ func TestResolvePlansPromotedField(t *testing.T) {
 		{Src: namedType(t, model, "WithBase"), Dst: namedType(t, protolike, "Flat")},
 	}
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      model.Fset,
-		Pairs:     pairs,
-		Direction: mapper.DirectionTo,
+		Fset:  model.Fset,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionTo),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -144,9 +142,8 @@ func TestResolvePlansEmbeddedDstError(t *testing.T) {
 		{Src: namedType(t, model, "WithBase"), Dst: namedType(t, protolike, "Flat")},
 	}
 	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      model.Fset,
-		Pairs:     pairs,
-		Direction: mapper.DirectionFrom,
+		Fset:  model.Fset,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionFrom),
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -171,11 +168,10 @@ func TestResolvePlansPrefersTheNilableRead(t *testing.T) {
 	}
 	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset: opt.Fset,
-		Pairs: []mapper.PairSpec{
+		Pairs: mapper.WithDirection([]mapper.PairSpec{
 			{Src: types.NewPointer(namedType(t, opt, "Wire")), Dst: namedType(t, opt, "Domain")},
-		},
-		Conv:      table,
-		Direction: mapper.DirectionTo,
+		}, mapper.DirectionTo),
+		Conv: table,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -199,10 +195,9 @@ func TestResolvePlansPromotedFieldHonorsTags(t *testing.T) {
 	errcases := fixture(t, "errcases")
 	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset: errcases.Fset,
-		Pairs: []mapper.PairSpec{
+		Pairs: mapper.WithDirection([]mapper.PairSpec{
 			{Src: namedType(t, errcases, "PromotedSrc"), Dst: namedType(t, errcases, "PromotedDst")},
-		},
-		Direction: mapper.DirectionTo,
+		}, mapper.DirectionTo),
 	})
 	if err == nil {
 		t.Fatal("expected the excluded field to be reported as unmapped")
@@ -294,9 +289,8 @@ func TestResolvePlansErrors(t *testing.T) {
 				{Src: namedType(t, errcases, tt.src), Dst: namedType(t, errcases, tt.dst)},
 			}
 			_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-				Fset:      errcases.Fset,
-				Pairs:     pairs,
-				Direction: mapper.DirectionTo,
+				Fset:  errcases.Fset,
+				Pairs: mapper.WithDirection(pairs, mapper.DirectionTo),
 			})
 			if err == nil {
 				t.Fatal("expected error")
@@ -318,9 +312,8 @@ func TestResolvePlansReportsBothInvalidPairTypes(t *testing.T) {
 		{Src: namedType(t, model, "UserID"), Dst: namedType(t, model, "Tag")},
 	}
 	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      model.Fset,
-		Pairs:     pairs,
-		Direction: mapper.DirectionBoth,
+		Fset:  model.Fset,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionBoth),
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -385,12 +378,11 @@ func TestResolvePlansUnusedIgnore(t *testing.T) {
 	}
 	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
 		Fset:  errcases.Fset,
-		Pairs: pairs,
+		Pairs: mapper.WithDirection(pairs, mapper.DirectionTo),
 		Ignores: map[mapper.FieldKey]bool{
 			{PkgPath: errcases.PkgPath, Type: "UnmappedDst", Field: "Bar"}:  true,
 			{PkgPath: errcases.PkgPath, Type: "UnmappedDst", Field: "Nope"}: true,
 		},
-		Direction: mapper.DirectionTo,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -403,18 +395,18 @@ func TestResolvePlansUnusedIgnore(t *testing.T) {
 	}
 }
 
+// A value and a pointer to it are different pairs that end up with one name.
 func TestResolvePlansDuplicateName(t *testing.T) {
 	t.Parallel()
 
 	errcases := fixture(t, "errcases")
-	pair := mapper.PairSpec{
-		Src: namedType(t, errcases, "UnmappedSrc"),
-		Dst: namedType(t, errcases, "UnmappedSrc"),
-	}
+	src := namedType(t, errcases, "UnmappedSrc")
 	_, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
-		Fset:      errcases.Fset,
-		Pairs:     []mapper.PairSpec{pair, pair},
-		Direction: mapper.DirectionTo,
+		Fset: errcases.Fset,
+		Pairs: mapper.WithDirection([]mapper.PairSpec{
+			{Src: src, Dst: src},
+			{Src: src, Dst: types.NewPointer(src)},
+		}, mapper.DirectionTo),
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -422,4 +414,60 @@ func TestResolvePlansDuplicateName(t *testing.T) {
 	if !strings.Contains(err.Error(), "duplicate function name") {
 		t.Errorf("unexpected error message: %v", err)
 	}
+}
+
+// Each pair keeps the direction it was declared with, so one run can map one
+// type in and another out.
+func TestResolvePlansPerPairDirection(t *testing.T) {
+	t.Parallel()
+
+	pairs, table, model := employeePairs(t)
+	pairs[0].Direction = mapper.DirectionTo
+	pairs[1].Direction = mapper.DirectionBoth
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
+		Fset:  model.Fset,
+		Pairs: pairs,
+		Conv:  table,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	names := planNames(plans)
+	want := []string{"EmployeeToProtolike", "AddressToProtolike", "AddressFromProtolike"}
+	if !slices.Equal(names, want) {
+		t.Errorf("plans = %v, want %v", names, want)
+	}
+}
+
+// Declaring a pair once in each direction asks for both, not for a duplicate.
+func TestResolvePlansMergesDirections(t *testing.T) {
+	t.Parallel()
+
+	pairs, table, model := employeePairs(t)
+	to, from := pairs[1], pairs[1]
+	to.Direction = mapper.DirectionTo
+	from.Direction = mapper.DirectionFrom
+	plans, _, err := mapper.ResolvePlans(mapper.ResolveConfig{
+		Fset:  model.Fset,
+		Pairs: []mapper.PairSpec{to, from},
+		Conv:  table,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	names := planNames(plans)
+	want := []string{"AddressToProtolike", "AddressFromProtolike"}
+	if !slices.Equal(names, want) {
+		t.Errorf("plans = %v, want %v", names, want)
+	}
+}
+
+func planNames(plans []*mapper.FuncPlan) []string {
+	names := make([]string, 0, len(plans))
+	for _, p := range plans {
+		names = append(names, mapper.PlanName(p))
+	}
+	return names
 }
