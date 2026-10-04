@@ -322,7 +322,9 @@ func positionOf(pkg *packages.Package, pos token.Pos) token.Position {
 // "file:line:col: message" lines. The package is type-checked from source as
 // well, and go/types reports each of those again, with a position. Only a block
 // whose every line has such a twin is dropped, so whatever the compiler alone
-// noticed is still reported.
+// noticed is still reported. The compiler gives up after ten errors with a
+// "too many errors" line; that line reports nothing of its own and needs no
+// twin.
 func loadErrors(pkg *packages.Package) []packages.Error {
 	typed := make(map[string]bool)
 	for _, e := range pkg.Errors {
@@ -344,6 +346,8 @@ func loadErrors(pkg *packages.Package) []packages.Error {
 // compilerLine matches one line of compiler output, "file:line:col: message".
 var compilerLine = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.+)$`)
 
+const tooManyErrors = "too many errors"
+
 // echoesTypeErrors reports whether msg is a compiler diagnostic block whose
 // every line is already among the type errors keyed by errorKey.
 func echoesTypeErrors(msg string, typed map[string]bool) bool {
@@ -353,7 +357,13 @@ func echoesTypeErrors(msg string, typed map[string]bool) bool {
 	}
 	for _, line := range lines[1:] {
 		m := compilerLine.FindStringSubmatch(line)
-		if m == nil || !typed[errorKey(m[1]+":"+m[2]+":"+m[3], m[4])] {
+		if m == nil {
+			return false
+		}
+		if m[4] == tooManyErrors {
+			continue
+		}
+		if !typed[errorKey(m[1]+":"+m[2]+":"+m[3], m[4])] {
 			return false
 		}
 	}
