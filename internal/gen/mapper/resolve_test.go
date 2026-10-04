@@ -159,7 +159,8 @@ func TestResolvePlansEmbeddedDstError(t *testing.T) {
 // A getter returning a value must not be preferred over the pointer field it
 // wraps, whether or not a converter sits in between: reading through it turns a
 // nil pointer into a pointer to a zero, which is the distinction the pointer was
-// carrying.
+// carrying. A converter taking the pointer itself is guarded for the same
+// reason.
 func TestResolvePlansPrefersTheNilableRead(t *testing.T) {
 	t.Parallel()
 
@@ -182,7 +183,9 @@ func TestResolvePlansPrefersTheNilableRead(t *testing.T) {
 
 	want := `WireToDomain(*optional.Wire) (optional.Domain, error)
   Note = .Note direct
-  Count = .Count deref(addr(convE:Atoi))`
+  Count = .Count deref(addr(convE:Atoi))
+  Seen = .Seen guard(addr(conv:StampSeconds))
+  Days = .Days conv:StampDays`
 	if got := mapper.DescribePlan(plans[0]); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
