@@ -659,6 +659,39 @@ func TestStructs_DropsCompilerOutputThatRepeatsTypeErrors(t *testing.T) {
 	}
 }
 
+// The compiler stops after ten errors and says so; the "too many errors" line
+// has no twin among the type errors but adds nothing, so the block is still an
+// echo. Without this a package with ten or more calls to a constructor that is
+// not generated yet could never get its first generation.
+func TestStructs_DropsCompilerOutputCutShortByTooManyErrors(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadFile(t, "package test\n")
+	pkg.Errors = []packages.Error{
+		{
+			Kind: packages.ListError,
+			Msg: "# example.com/app [example.com/app.test]\n" +
+				"./env_test.go:11:6: undefined: newEnv\n" +
+				"./env_test.go:15:6: undefined: newEnv\n" +
+				"./env_test.go:15:6: too many errors\n",
+		},
+		{Kind: packages.TypeError, Pos: "/work/app/env_test.go:11:6", Msg: "undefined: newEnv"},
+		{Kind: packages.TypeError, Pos: "/work/app/env_test.go:15:6", Msg: "undefined: newEnv"},
+		{Kind: packages.TypeError, Pos: "/work/app/env_test.go:19:6", Msg: "undefined: newEnv"},
+	}
+
+	_, ds := scan.Structs([]*packages.Package{pkg})
+
+	messages := make([]string, 0, len(ds))
+	for _, d := range ds {
+		messages = append(messages, d.Message)
+	}
+	want := []string{"undefined: newEnv", "undefined: newEnv", "undefined: newEnv"}
+	if !slices.Equal(messages, want) {
+		t.Errorf("messages = %q, want %q", messages, want)
+	}
+}
+
 // A block with a line go/types did not report is not an echo, and stays.
 func TestStructs_KeepsCompilerOutputWithUnmatchedLines(t *testing.T) {
 	t.Parallel()

@@ -2,6 +2,7 @@ package di_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -631,6 +632,51 @@ func TestEnv(t *testing.T) {
 	generated := readFile(t, filepath.Join(dir, "di_gen_test.go"))
 	if !strings.Contains(generated, "func NewEnv() *Env {") {
 		t.Errorf("di_gen_test.go missing NewEnv:\n%s", generated)
+	}
+}
+
+// go list builds the test package for export data, and the compiler it runs
+// gives up after ten errors. A test that calls a not-yet-generated constructor
+// ten or more times must still get its first generation.
+func TestCLI_SetsAsideMoreCallsThanTheCompilerReports(t *testing.T) {
+	t.Parallel()
+
+	var calls strings.Builder
+	for i := range 12 {
+		fmt.Fprintf(&calls, "func TestPut%d(t *testing.T) { _ = usecase.NewPutTodo() }\n", i)
+	}
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"usecase/usecase.go": `package usecase
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type PutTodo struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"usecase/usecase_test.go": `package usecase_test
+
+import (
+	"testing"
+
+	"example.com/app/usecase"
+)
+
+` + calls.String(),
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+	generated := readFile(t, filepath.Join(dir, "usecase", "di_gen.go"))
+	if !strings.Contains(generated, "func NewPutTodo() *PutTodo {") {
+		t.Errorf("di_gen.go missing NewPutTodo:\n%s", generated)
 	}
 }
 
