@@ -486,7 +486,10 @@ func (r *resolver) checkSrcTags(p *funcPlan, srcFields []srcField, dstStruct *ty
 // identity, registered converter, declared pair, source deref,
 // destination address-of, element-wise slice, restricted type conversion.
 // Source deref is tried before destination address-of so that a nil
-// pointer maps to a nil pointer, not a pointer to a zero value.
+// pointer maps to a nil pointer, not a pointer to a zero value. For the
+// same reason, a source pointer that reaches a pointer destination through
+// address-of is passed on only when it is not nil; a converter that wants
+// to see nil can be registered for the two pointer types themselves.
 func (r *resolver) resolveOp(src, dst types.Type) (op, error) {
 	src, dst = types.Unalias(src), types.Unalias(dst)
 	if types.Identical(src, dst) {
@@ -505,6 +508,9 @@ func (r *resolver) resolveOp(src, dst types.Type) (op, error) {
 	}
 	if dp, ok := dst.(*types.Pointer); ok {
 		if elem, err := r.resolveOp(src, dp.Elem()); err == nil {
+			if _, ok := src.(*types.Pointer); ok {
+				return opNilGuard{elem: opAddr{elem: elem}}, nil
+			}
 			return opAddr{elem: elem}, nil
 		}
 	}

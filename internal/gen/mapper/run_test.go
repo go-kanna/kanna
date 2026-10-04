@@ -176,6 +176,40 @@ func TestRunPreservesPointerNilness(t *testing.T) {
 	}
 }
 
+// A converter that takes the source pointer is not handed a nil one when the
+// destination is a pointer too, while one registered for the two pointer types
+// is called as is and sees nil itself.
+func TestRunGuardsPointerConverters(t *testing.T) {
+	t.Parallel()
+
+	const pkg = "github.com/go-kanna/kanna/internal/gen/mapper/testdata/optional"
+	dir, err := filepath.Abs(filepath.Join("testdata", "optional"))
+	if err != nil {
+		t.Fatalf("resolve fixture: %v", err)
+	}
+	out := t.TempDir()
+	code, _, stderr := runCLI(t, dir,
+		"-types="+pkg+".Domain:*"+pkg+".Wire", "-direction=from",
+		"-converters=.", "-destination="+out, "-package=out")
+	if code != exit.OK {
+		t.Fatalf("Run() = %d, want %d\nstderr: %s", code, exit.OK, stderr)
+	}
+
+	//nolint:gosec // the path is under t.TempDir
+	got, err := os.ReadFile(filepath.Join(out, "mapper_gen.go"))
+	if err != nil {
+		t.Fatalf("read generated file: %v", err)
+	}
+	for _, want := range []string{
+		"if v6 := src.Seen; v6 != nil {\n\t\tv7 := optional.StampSeconds(v6)",
+		"Days:  optional.StampDays(src.Days),",
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("generated file does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
 // Every file in a directory agrees on its package clause, so -package cannot
 // override what is already declared there.
 func TestRunPackageConflict(t *testing.T) {

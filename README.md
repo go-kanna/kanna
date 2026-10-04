@@ -410,6 +410,10 @@ A destination field with no source is an error, not a silent zero value. Exclude
 (`int` is 64 bits on some platforms), `int` → `uint` (sign), `int64` → `float64` (precision), or anything → `string`.
 Everything else needs a converter, and the error message shows the `mapper.Register` line that would satisfy it.
 
+A nil source stays nil whenever the destination is a pointer too. That includes a converter that takes the source
+pointer itself, such as `*timestamppb.Timestamp` → `time.Time` filling a `*time.Time`: it is called only when the
+source is set. To decide what nil becomes, register a converter between the two pointer types; it is called as is.
+
 ### With kanna-orm models
 
 When a pair type is a `//kanna:table` struct, the mapper reads the same orm tags the ORM generator does:

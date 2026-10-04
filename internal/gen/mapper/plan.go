@@ -56,6 +56,10 @@ type opDeref struct{ elem op }
 // opAddr stores the converted value in a temporary and takes its address.
 type opAddr struct{ elem op }
 
+// opNilGuard passes a source pointer on to elem only when it is not nil,
+// leaving the destination nil otherwise.
+type opNilGuard struct{ elem op }
+
 // opSlice converts a slice element-wise; nil maps to nil.
 type opSlice struct {
 	dst  types.Type // destination slice type
@@ -72,16 +76,18 @@ var (
 	_ op = opTypeConv{}
 	_ op = opDeref{}
 	_ op = opAddr{}
+	_ op = opNilGuard{}
 	_ op = opSlice{}
 )
 
-func (opDirect) mayFail() bool    { return false }
-func (o opConvert) mayFail() bool { return o.conv.hasErr }
-func (o opMapper) mayFail() bool  { return o.plan.returnsError }
-func (opTypeConv) mayFail() bool  { return false }
-func (o opDeref) mayFail() bool   { return o.elem.mayFail() }
-func (o opAddr) mayFail() bool    { return o.elem.mayFail() }
-func (o opSlice) mayFail() bool   { return o.elem.mayFail() }
+func (opDirect) mayFail() bool     { return false }
+func (o opConvert) mayFail() bool  { return o.conv.hasErr }
+func (o opMapper) mayFail() bool   { return o.plan.returnsError }
+func (opTypeConv) mayFail() bool   { return false }
+func (o opDeref) mayFail() bool    { return o.elem.mayFail() }
+func (o opAddr) mayFail() bool     { return o.elem.mayFail() }
+func (o opNilGuard) mayFail() bool { return o.elem.mayFail() }
+func (o opSlice) mayFail() bool    { return o.elem.mayFail() }
 
 // describe renders a compact, human-readable form of the plan for tests
 // and debug output.
@@ -120,6 +126,8 @@ func describeOp(o op) string {
 		return "deref(" + describeOp(v.elem) + ")"
 	case opAddr:
 		return "addr(" + describeOp(v.elem) + ")"
+	case opNilGuard:
+		return "guard(" + describeOp(v.elem) + ")"
 	case opSlice:
 		return "slice(" + describeOp(v.elem) + ")"
 	default:

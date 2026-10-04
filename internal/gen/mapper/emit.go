@@ -202,6 +202,11 @@ func (e *emitter) emitAssign(fn *fnCtx, target, val string, o op, dstType types.
 		fmt.Fprintf(fn.buf, "if %s := %s; %s != nil {\n", tv, val, tv)
 		e.emitAssign(fn, target, "*"+tv, v.elem, dstType, fieldName)
 		fn.buf.WriteString("}\n")
+	case opNilGuard:
+		tv := e.tmp("v")
+		fmt.Fprintf(fn.buf, "if %s := %s; %s != nil {\n", tv, val, tv)
+		e.emitAssign(fn, target, tv, v.elem, dstType, fieldName)
+		fn.buf.WriteString("}\n")
 	case opAddr:
 		ptr, ok := types.Unalias(dstType).(*types.Pointer)
 		if !ok {
