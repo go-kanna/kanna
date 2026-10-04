@@ -77,14 +77,14 @@ When any provider in the chain returns an error, the constructor returns one too
 A field may be named — the resolved value is stored in it — or blank (`_`), which declares something about the container
 without keeping a value.
 
-| Tag               | On a named field                                                       | On a blank field                                                                 |
-|-------------------|------------------------------------------------------------------------|----------------------------------------------------------------------------------|
-| `di:""`           | resolve from whichever provider returns the field's type               | —                                                                                |
-| `di:"with=<ref>"` | resolve from the named provider                                        | pick that provider for the type everywhere in this container                     |
-| `di:"arg"`        | take it as a constructor parameter, named after its type, and store it | take it as a parameter only                                                      |
-| `di:"arg=<name>"` | same, with the parameter name spelled out                              | same, with the parameter name spelled out                                        |
-| `di:"returns"`    | store it and declare its type as the constructor's return type         | declare the return type only                                                     |
-| `di:"embed"`      | —                                                                      | take a struct as a parameter and offer its exported fields as resolution sources |
+| Tag               | On a named field                                                                            | On a blank field                                                                 |
+|-------------------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| `di:""`           | resolve from whichever provider returns the field's type                                    | —                                                                                |
+| `di:"with=<ref>"` | resolve from the named provider                                                             | pick that provider for the type everywhere in this container                     |
+| `di:"arg"`        | take it as a constructor parameter, named after its type, and store it                      | take it as a parameter only                                                      |
+| `di:"arg=<name>"` | same, with the parameter name spelled out                                                   | same, with the parameter name spelled out                                        |
+| `di:"returns"`    | store it and declare its type as the constructor's return type                              | declare the return type only                                                     |
+| `di:"embed"`      | take a struct as a parameter, offer its exported fields as resolution sources, and store it | take a struct as a parameter and offer its exported fields as resolution sources |
 
 `<ref>` may be a bare function name (`NewWriter`), a package-qualified one (`config.NewWriter`), or fully qualified (
 `github.com/me/config.NewWriter`).
@@ -107,6 +107,34 @@ honor that form either, and points out the spelling it expected.
 `returns=` takes the container's own type to construct it by value, or an interface the container satisfies to hide the
 concrete type.
 
+### Tests
+
+A container declared in a `_test.go` file is generated too, into `di_gen_test.go` next to it, in the package that file
+declares — the package itself or its external `_test` package. The struct a test suite bundles its dependencies into
+and wires by hand is a container like any other:
+
+```go
+package app_test
+
+//kanna:container name=newEnv
+type env struct {
+	deps infra.Deps   `di:"embed"`
+	user service.User `di:""`
+}
+
+func TestRegister(t *testing.T) {
+	e := newEnv(infra.MustNewDeps())
+	// ...
+}
+```
+
+The test calls `newEnv` before the first run has written it. kanna-di sets that error aside — any call to a constructor
+it is about to generate, in any package — and reports everything else.
+
+A provider declared in a `_test.go` file is compiled into that package's test binary and nowhere else, so it serves the
+containers of that package's tests (in-package and external) and no other. One directory can hold test containers in
+either of its two test packages, not both: they would share `di_gen_test.go`.
+
 ### Flags
 
 | Flag              | Meaning                                                       |
@@ -119,8 +147,9 @@ concrete type.
 ### Example
 
 [`examples/di`](examples/di) wires a small application covering every directive and every tag except `di:"arg=<name>"`,
-which needs a name collision before it is worth showing. CI regenerates it and fails if the output would change, so what
-you read there is what the generator currently produces.
+which needs a name collision before it is worth showing; `app/app_test.go` adds a test container, generated into
+`di_gen_test.go`. CI regenerates it and fails if the output would change, so what you read there is what the generator
+currently produces.
 
 ## kanna-fixture
 

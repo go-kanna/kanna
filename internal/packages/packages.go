@@ -21,6 +21,15 @@ type Package = packages.Package
 // callers can inspect load failures without importing the upstream package.
 type Error = packages.Error
 
+// The kinds of Error a caller tells apart.
+const (
+	// ListError came from go list: a package that could not be listed, or the
+	// compiler output of a build go list ran for export data.
+	ListError = packages.ListError
+	// TypeError came from type-checking the package's own source.
+	TypeError = packages.TypeError
+)
+
 // Config controls how packages are loaded.
 type Config struct {
 	// Dir is the directory the patterns are resolved against. Empty means the

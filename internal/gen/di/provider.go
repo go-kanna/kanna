@@ -76,6 +76,7 @@ func providersInPackage(pkg *packages.Package) ([]Provider, []diag.Diag) {
 			Params:       paramTypes(sig),
 			ReturnsError: returnsError,
 			Generated:    generated[pos.Filename],
+			Test:         isTestFile(pos.Filename),
 			Pos:          pos,
 		})
 	}
@@ -90,6 +91,19 @@ func providersInPackage(pkg *packages.Package) ([]Provider, []diag.Diag) {
 	})
 
 	return providers, nil
+}
+
+// usableBy reports whether a constructor generated for c can call p.
+//
+// A provider declared in a _test.go file is compiled into its own package's test
+// binary and nowhere else. The containers that binary also holds are the
+// package's in-package test containers and those of its external test package,
+// which is exactly where a call to the provider compiles.
+func (p Provider) usableBy(c Container) bool {
+	if !p.Test {
+		return true
+	}
+	return c.Test && (c.PkgPath == p.PkgPath || c.PkgPath == p.PkgPath+"_test")
 }
 
 // providerResult reports the value a signature provides, whether it also returns

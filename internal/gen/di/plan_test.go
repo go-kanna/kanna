@@ -942,3 +942,87 @@ func mustBuild(t *testing.T, src, containerName string, opts di.Options) (di.Pla
 	}
 	return pl, ds
 }
+
+// A named embed field is stored like a named arg, while its fields still serve
+// as resolution sources.
+func TestBuild_NamedEmbedIsStored(t *testing.T) {
+	t.Parallel()
+
+	src := `package test
+type DB struct{}
+type Repo struct{}
+type Infra struct {
+	DB *DB
+}
+func NewRepo(db *DB) *Repo { return nil }
+type Container struct {
+	Infra *Infra ` + "`di:\"embed\"`" + `
+	Repo  *Repo  ` + "`di:\"\"`" + `
+}
+`
+	p, _ := mustBuild(t, src, "Container", di.Options{})
+
+	if len(p.Inputs) != 1 || p.Inputs[0].Name != "infra" {
+		t.Fatalf("inputs = %+v, want one named infra", p.Inputs)
+	}
+
+	var storedInfra bool
+	for _, o := range p.Outputs {
+		if o.FieldName != "Infra" {
+			continue
+		}
+		storedInfra = true
+		if s := p.Steps[o.StepIndex]; s.Kind != di.StepKindInput || s.InputIndex != 0 {
+			t.Errorf("Infra is assigned from %+v, want the embed input itself", s)
+		}
+	}
+	if !storedInfra {
+		t.Errorf("outputs = %+v, want Infra among them", p.Outputs)
+	}
+
+	var viaEmbed bool
+	for _, s := range p.Steps {
+		if s.Kind == di.StepKindEmbedField && s.EmbedFieldName == "DB" {
+			viaEmbed = true
+		}
+	}
+	if !viaEmbed {
+		t.Errorf("steps = %+v, want Repo's DB taken from the embed", p.Steps)
+	}
+}
+
+// A provider declared in a test file serves only the containers of that
+// package's tests; the package's own containers do not see it.
+func TestBuildAll_TestProvidersServeOnlyTestContainers(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadPackage(t, map[string]string{
+		"app.go": `package test
+type Fake struct{}
+type Container struct {
+	Fake *Fake ` + "`di:\"\"`" + `
+}
+`,
+		"fake_test.go": `package test
+func NewFake() *Fake { return nil }
+type Env struct {
+	Fake *Fake ` + "`di:\"\"`" + `
+}
+`,
+	})
+	pkgs := []*packages.Package{pkg}
+
+	structs, ds := scan.Structs(pkgs)
+	assertNoErrors(t, ds)
+	cs, ds := di.Containers(pkg.Fset, structs)
+	assertNoErrors(t, ds)
+	ps, ds := di.Providers(pkgs)
+	assertNoErrors(t, ds)
+
+	plans, ds := di.BuildAll(cs, ps, di.Options{})
+
+	if len(plans) != 1 || plans[0].Container.StructName != "Env" {
+		t.Errorf("plans resolved = %d, want only Env", len(plans))
+	}
+	assertErrorContains(t, ds, "no provider for *test.Fake (required by field Fake)")
+}

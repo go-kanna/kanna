@@ -488,3 +488,278 @@ func TestCLI_RefusesHandWrittenOutput(t *testing.T) {
 		t.Errorf("stderr = %q, want a refusal", errOut.String())
 	}
 }
+
+// A container declared in a test file gets its constructor in di_gen_test.go,
+// and the test that calls that constructor does not block the first run.
+func TestCLI_WritesTestContainersToTheTestFile(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type Container struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"env_test.go": `package app
+
+import "testing"
+
+//kanna:container name=newEnv
+type env struct {
+	db *DB ` + "`di:\"\"`" + `
+}
+
+func TestEnv(t *testing.T) {
+	_ = newEnv()
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+
+	generated := readFile(t, filepath.Join(dir, "di_gen_test.go"))
+	for _, want := range []string{"package app\n", "func newEnv() *env {", "db := NewDB()"} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("di_gen_test.go missing %q:\n%s", want, generated)
+		}
+	}
+	if plain := readFile(t, filepath.Join(dir, "di_gen.go")); strings.Contains(plain, "newEnv") {
+		t.Errorf("di_gen.go carries the test container:\n%s", plain)
+	}
+}
+
+// An external test package is a package of its own: its containers get a
+// di_gen_test.go declaring that package, with the tested package imported.
+func TestCLI_WritesExternalTestPackageContainers(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+`,
+		"env_test.go": `package app_test
+
+import (
+	"testing"
+
+	"example.com/app"
+)
+
+//kanna:container name=newEnv
+type env struct {
+	db *app.DB ` + "`di:\"\"`" + `
+}
+
+func TestEnv(t *testing.T) {
+	_ = newEnv()
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+
+	generated := readFile(t, filepath.Join(dir, "di_gen_test.go"))
+	for _, want := range []string{"package app_test\n", `"example.com/app"`, "db := app.NewDB()"} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("di_gen_test.go missing %q:\n%s", want, generated)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "di_gen.go")); !os.IsNotExist(err) {
+		t.Errorf("di_gen.go was written although no container lives in the package proper (%v)", err)
+	}
+}
+
+// The export_test.go layout: the container sits in the package's own test
+// file with an exported constructor, and the external test package calls it.
+func TestCLI_SetsAsideQualifiedCallsToItsConstructors(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+`,
+		"export_test.go": `package app
+
+type Env struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"env_test.go": `package app_test
+
+import (
+	"testing"
+
+	"example.com/app"
+)
+
+func TestEnv(t *testing.T) {
+	_ = app.NewEnv()
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+	generated := readFile(t, filepath.Join(dir, "di_gen_test.go"))
+	if !strings.Contains(generated, "func NewEnv() *Env {") {
+		t.Errorf("di_gen_test.go missing NewEnv:\n%s", generated)
+	}
+}
+
+// Only calls to the constructors of this run are set aside; any other undefined
+// name is still the error it always was.
+func TestCLI_KeepsUnrelatedUndefinedErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+`,
+		"env_test.go": `package app
+
+import "testing"
+
+//kanna:container name=newEnv
+type env struct {
+	db *DB ` + "`di:\"\"`" + `
+}
+
+func TestEnv(t *testing.T) {
+	_ = newEnv()
+	_ = nothingHere
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.Error {
+		t.Fatalf("exit code = %d, want %d", code, exit.Error)
+	}
+	if !strings.Contains(errOut.String(), "undefined: nothingHere") {
+		t.Errorf("stderr = %q, want the unrelated undefined name reported", errOut.String())
+	}
+	if strings.Contains(errOut.String(), "undefined: newEnv") {
+		t.Errorf("stderr = %q, want the constructor call set aside", errOut.String())
+	}
+}
+
+// A provider declared in a test file is compiled only into the tests, so the
+// package's own containers never resolve against it, while a test container may.
+func TestCLI_TestProvidersStayOutOfThePackage(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+
+type Container struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"fake_test.go": `package app
+
+func NewFakeDB() *DB { return nil }
+
+//kanna:container name=newEnv
+type env struct {
+	db *DB ` + "`di:\"with=NewFakeDB\"`" + `
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.OK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.OK, errOut.String())
+	}
+	if plain := readFile(t, filepath.Join(dir, "di_gen.go")); !strings.Contains(plain, "db := NewDB()") {
+		t.Errorf("di_gen.go does not resolve against the package's own provider:\n%s", plain)
+	}
+	if test := readFile(t, filepath.Join(dir, "di_gen_test.go")); !strings.Contains(test, "db := NewFakeDB()") {
+		t.Errorf("di_gen_test.go does not use the test provider:\n%s", test)
+	}
+}
+
+// One directory can hold test containers in the package and in its external
+// test package, but both would be written to di_gen_test.go.
+func TestCLI_RefusesTestContainersInTwoPackagesOfOneDirectory(t *testing.T) {
+	t.Parallel()
+
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.25\n",
+		"app.go": `package app
+
+type DB struct{}
+
+func NewDB() *DB { return nil }
+`,
+		"inner_test.go": `package app
+
+type inner struct {
+	db *DB ` + "`di:\"\"`" + `
+}
+`,
+		"outer_test.go": `package app_test
+
+import "example.com/app"
+
+type outer struct {
+	db *app.DB ` + "`di:\"\"`" + `
+}
+`,
+	})
+
+	var out, errOut bytes.Buffer
+	c := di.CLI{Out: &out, Err: &errOut, Dir: dir}
+
+	if code := c.Run([]string{"./..."}); code != exit.Error {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, exit.Error, errOut.String())
+	}
+	for _, want := range []string{"di_gen_test.go", "app_test"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr = %q, want it to mention %q", errOut.String(), want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "di_gen_test.go")); !os.IsNotExist(err) {
+		t.Errorf("di_gen_test.go was written despite the conflict (%v)", err)
+	}
+}

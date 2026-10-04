@@ -20,3 +20,6 @@ func RenderForTest(t *testing.T, im *Imports, p Plan) string {
 	}
 	return buf.String()
 }
+
+// UsableBy exposes the provider scoping rule to the external test package.
+var UsableBy = Provider.usableBy

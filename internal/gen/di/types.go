@@ -26,6 +26,11 @@ type Container struct {
 	// *types.Struct.
 	Named *types.Named
 
+	// Test reports whether the struct is declared in a _test.go file. Its
+	// constructor then goes into the package's test files as well, and may call
+	// providers declared there.
+	Test bool
+
 	Pos       token.Position
 	Directive Directive
 	Fields    []Field
@@ -80,9 +85,10 @@ const (
 	// type but otherwise contributes nothing to construction.
 	RoleReturnsOnly
 
-	// RoleEmbed is a blank field whose type is a struct (or pointer to a
-	// struct) passed in as a constructor argument and whose exported fields
-	// are usable as resolution sources for the containing container.
+	// RoleEmbed is a field whose type is a struct (or pointer to a struct)
+	// passed in as a constructor argument and whose exported fields are usable
+	// as resolution sources for the containing container. A named field also
+	// stores the value, like RoleArg.
 	RoleEmbed
 )
 
@@ -102,6 +108,11 @@ type Provider struct {
 	// constructors on purpose — but when it makes a resolution ambiguous the
 	// diagnostic needs to say where it came from.
 	Generated bool
+
+	// Test reports whether the function is declared in a _test.go file. It is
+	// then compiled into its package's test binary and nowhere else, which
+	// limits the containers that can call it; see usableBy.
+	Test bool
 
 	Pos token.Position
 }

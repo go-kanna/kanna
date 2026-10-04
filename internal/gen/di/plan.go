@@ -126,7 +126,9 @@ func Build(c Container, idx *Index, opts Options) (Plan, []diag.Diag) {
 				continue
 			}
 			outputs = append(outputs, Output{FieldName: f.Name, StepIndex: stepIdx})
-		case RoleArg:
+		case RoleArg, RoleEmbed:
+			// The input itself is declared in buildInputs, and an embed's fields
+			// in buildEmbeds; what is left is storing it when the field is named.
 			if f.Name == "_" {
 				continue
 			}
@@ -136,8 +138,8 @@ func Build(c Container, idx *Index, opts Options) (Plan, []diag.Diag) {
 				continue
 			}
 			outputs = append(outputs, Output{FieldName: f.Name, StepIndex: stepIdx})
-		case RoleOverride, RoleReturnsOnly, RoleEmbed:
-			// Handled in buildOverrides / resolveReturnType / buildEmbeds.
+		case RoleOverride, RoleReturnsOnly:
+			// Handled in buildOverrides / resolveReturnType.
 		}
 	}
 
@@ -269,7 +271,7 @@ func (r *resolver) resolveByRef(want types.Type, ref string, pos token.Position)
 
 	var matched []*Provider
 	for _, p := range candidates {
-		if p.Result != nil && types.Identical(p.Result, want) {
+		if p.Result != nil && sameType(p.Result, want) {
 			matched = append(matched, p)
 		}
 	}
@@ -369,6 +371,9 @@ func (r *resolver) resolveProvider(p *Provider, pos token.Position) (int, []diag
 // no progress. A constructor left from an earlier run for one of these
 // containers is set aside, since it may describe a container that has changed.
 //
+// Each container resolves against the providers it can call; see
+// Provider.usableBy for what a test file keeps to itself.
+//
 // Plans are returned in container order, for the containers that resolved.
 func BuildAll(containers []Container, providers []Provider, opts Options) ([]Plan, []diag.Diag) {
 	own := make(map[string]bool, len(containers)*2)
@@ -389,13 +394,12 @@ func BuildAll(containers []Container, providers []Provider, opts Options) ([]Pla
 	diags := make([][]diag.Diag, len(containers))
 	done := make([]bool, len(containers))
 	for {
-		idx := NewIndex(base)
 		progress := false
 		for i, c := range containers {
 			if done[i] {
 				continue
 			}
-			pl, ds := Build(c, idx, opts)
+			pl, ds := Build(c, NewIndex(usableProviders(base, c)), opts)
 			diags[i] = ds
 			if diag.HasErrors(ds) {
 				continue
@@ -423,6 +427,17 @@ func BuildAll(containers []Container, providers []Provider, opts Options) ([]Pla
 	return out, all
 }
 
+// usableProviders keeps the providers a constructor for c may call.
+func usableProviders(providers []Provider, c Container) []Provider {
+	out := make([]Provider, 0, len(providers))
+	for _, p := range providers {
+		if p.usableBy(c) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // constructorProvider describes the constructor a plan is about to emit.
 func constructorProvider(pl Plan) Provider {
 	params := make([]types.Type, 0, len(pl.Inputs))
@@ -438,6 +453,7 @@ func constructorProvider(pl Plan) Provider {
 		Params:       params,
 		ReturnsError: pl.ReturnsError,
 		Generated:    true,
+		Test:         c.Test,
 		Pos:          c.Pos,
 	}
 }

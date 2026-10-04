@@ -225,7 +225,9 @@ type Container struct {
 	}
 }
 
-func TestContainers_RejectsNonBlankEmbedTag(t *testing.T) {
+// A named embed field keeps the struct it takes apart, the way a named arg
+// keeps its value.
+func TestContainers_AcceptsNamedEmbedTag(t *testing.T) {
 	t.Parallel()
 
 	src := `package test
@@ -233,13 +235,52 @@ func TestContainers_RejectsNonBlankEmbedTag(t *testing.T) {
 type Config struct{ Addr string }
 
 type Container struct {
-	Cfg  Config ` + "`di:\"embed\"`" + `
-	Real Config ` + "`di:\"\"`" + `
+	Cfg Config ` + "`di:\"embed\"`" + `
 }
 `
-	_, ds := containersOf(t, src)
+	containers, ds := containersOf(t, src)
+	assertNoErrors(t, ds)
 
-	assertErrorContains(t, ds, `di:"embed" requires a blank field (_)`)
+	if got, want := len(containers), 1; got != want {
+		t.Fatalf("containers = %d, want %d", got, want)
+	}
+	f := containers[0].Fields[0]
+	if f.Role != di.RoleEmbed || f.Name != "Cfg" {
+		t.Errorf("field = %+v, want a RoleEmbed field named Cfg", f)
+	}
+}
+
+// A container declared in a test file is marked, so its constructor can be
+// written next to the tests rather than into the package proper.
+func TestContainers_MarksTestFiles(t *testing.T) {
+	t.Parallel()
+
+	pkg := pkgtest.LoadPackage(t, map[string]string{
+		"app.go": `package test
+
+type DB struct{}
+
+type Container struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+		"env_test.go": `package test
+
+type Env struct {
+	DB *DB ` + "`di:\"\"`" + `
+}
+`,
+	})
+	structs, ds := scan.Structs([]*packages.Package{pkg})
+	assertNoErrors(t, ds)
+	containers, ds := di.Containers(pkg.Fset, structs)
+	assertNoErrors(t, ds)
+
+	for _, c := range containers {
+		if want := c.StructName == "Env"; c.Test != want {
+			t.Errorf("%s: Test = %t, want %t", c.StructName, c.Test, want)
+		}
+	}
 }
 
 func TestContainers_RejectsEmbeddedFieldWithDITag(t *testing.T) {

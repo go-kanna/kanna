@@ -2,6 +2,7 @@ package di
 
 import (
 	"go/token"
+	"strings"
 
 	"github.com/go-kanna/kanna/internal/diag"
 	"github.com/go-kanna/kanna/internal/ir"
@@ -78,6 +79,7 @@ func containerOf(fset *token.FileSet, s ir.Struct) (Container, []diag.Diag, bool
 		PkgName:    s.PkgName,
 		StructName: s.Name,
 		Named:      s.Named,
+		Test:       isTestFile(s.Pos.Filename),
 		Pos:        s.Pos,
 		Directive:  directive,
 		Fields:     fields,
@@ -161,10 +163,8 @@ func decideRole(fieldName string, pt ParsedTag, pos token.Position) (Role, *diag
 		return RoleOut, nil
 
 	case TagEmbed:
-		if !blank {
-			d := diag.Errorf(pos, `di:"embed" requires a blank field (_)`)
-			return 0, &d
-		}
+		// Blank: constructor input and resolution source. Non-blank: the same,
+		// with the value also stored in the named container field.
 		return RoleEmbed, nil
 
 	case TagInvalid:
@@ -173,6 +173,12 @@ func decideRole(fieldName string, pt ParsedTag, pos token.Position) (Role, *diag
 		d := diag.Errorf(pos, "internal: unrecognized di tag form")
 		return 0, &d
 	}
+}
+
+// isTestFile reports whether filename is one the go tool compiles only into the
+// package's tests.
+func isTestFile(filename string) bool {
+	return strings.HasSuffix(filename, "_test.go")
 }
 
 // buildDirective converts a ParsedDirective into a Directive, resolving the
