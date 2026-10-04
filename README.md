@@ -217,8 +217,8 @@ Each field takes the first rule that matches.
 Names matched on a `string` field: `Email`, `Name`, `FirstName`, `LastName`, `Phone`, `URL`, `UUID`, `Address`, `City`,
 `Country`. Any field whose name ends in `At` and whose type is `time.Time` gets a date.
 
-Types matched: every `string`, `bool`, `int`, `uint`, and `float` kind, plus `time.Time` and `github.com/google/uuid`'s
-`UUID`.
+Types matched: every `string`, `bool`, `int`, `uint`, and `float` kind, plus `time.Time` and `uuid.UUID` from either the
+standard library (Go 1.27) or `github.com/google/uuid`.
 
 Left at the zero value: pointers, slices, maps, interfaces, channels, funcs, named basic types without a tag (the valid
 values are not knowable — `type Status string` could be anything), and any reference that would recurse, including a
