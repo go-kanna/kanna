@@ -57,6 +57,9 @@ $ go tool kanna gen --plan
 9. internal/feature/todo/usecase/generate.go:4
    run:    go tool kanna-di
    writes: internal/feature/todo/usecase/di_gen.go
+   after:  2 — its tests read internal/di, which kanna-di writes into
+   after:  4 — its tests read internal/feature/todo/model/fixture, which kanna-fixture writes into
+   after:  6 — its tests read internal/feature/todo/postgres, which kanna-orm writes into
    after:  8 — code in internal/feature/todo/usecase calls what kanna-validate generates
 ...
 external prerequisites:
