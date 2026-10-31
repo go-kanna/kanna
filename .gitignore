@@ -1,6 +1,12 @@
 .DS_Store
 .idea/
 
+# Output of the go coverage tool
+*.out
+
+# artifacts
+bin/
+
 # temporary files
 tmp/
 
