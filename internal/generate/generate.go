@@ -38,14 +38,16 @@ func Scan(path string, src []byte, pkg string) []Directive {
 		line++
 		var text []byte
 		text, rest, _ = bytes.Cut(rest, []byte("\n"))
-		if after, ok := bytes.CutPrefix(text, []byte("//go:generate")); ok && len(after) > 0 && (after[0] == ' ' || after[0] == '\t') {
-			found = append(found, Directive{
-				File:    path,
-				Line:    line,
-				Package: pkg,
-				Text:    string(bytes.TrimSuffix(after[1:], []byte("\r"))),
-			})
+		after, ok := bytes.CutPrefix(text, []byte("//go:generate"))
+		if !ok || len(after) == 0 || after[0] != ' ' && after[0] != '\t' {
+			continue
 		}
+		found = append(found, Directive{
+			File:    path,
+			Line:    line,
+			Package: pkg,
+			Text:    string(bytes.TrimSuffix(after[1:], []byte("\r"))),
+		})
 	}
 	return found
 }
