@@ -73,6 +73,13 @@ file that differs, and on a task it could not check, which is one that reads wha
 - run: go tool kanna gen --check
 ```
 
+`--check` names what differs, not how. To read the differences in CI, generate and ask git instead, which also follows a
+change through the tasks `--check` could not check. `git add -AN` has `git diff` show a file no commit has yet:
+
+```yaml
+- run: go tool kanna gen && git add -AN && git diff --exit-code
+```
+
 ### What it does and does not run
 
 A task is one `//go:generate go tool kanna-*` line, run as `go generate` runs it: in its package's directory, with
