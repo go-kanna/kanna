@@ -494,6 +494,49 @@ func TestGen_AGeneratorTooNew(t *testing.T) {
 	contains(t, got.stderr, "kanna-new answers -deps in protocol 99", "update kanna")
 }
 
+// Replacing a generator is the go command's business: what tells is what the
+// tool it resolves to answers.
+func TestGen_AGeneratorReplacedByAnOldOne(t *testing.T) {
+	t.Parallel()
+
+	old := "package main\n\nimport \"flag\"\n\nfunc main() { flag.Parse() }\n"
+	dir := project(t, map[string]string{
+		"a/a.go":                   "package a\n\n//go:generate go tool kanna-old\n",
+		"local/go.mod":             "module example.com/local\n\ngo 1.26.0\n",
+		"local/cmd/kanna-old/m.go": old,
+	})
+	gomod := "module example.com/m\n\ngo 1.26.0\n\nrequire example.com/local v0.0.0\n\n" +
+		"replace example.com/local => ./local\n\ntool example.com/local/cmd/kanna-old\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := kanna(t, dir, "gen")
+
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stderr, "kanna-old", "is too old to tell kanna gen what it reads and writes")
+}
+
+// The go command resolves a link, and the module has to be read as it does.
+func TestGen_ThroughALink(t *testing.T) {
+	t.Parallel()
+
+	dir := project(t, chain(""))
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	got := kanna(t, filepath.Join(link, "a"), "gen", "--plan", ".")
+
+	if got.code != 0 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stdout, "1. c/c.go:3\n", "2. b/b.go:5\n", "3. a/a.go:5\n")
+}
+
 func TestGen_Patterns(t *testing.T) {
 	t.Parallel()
 

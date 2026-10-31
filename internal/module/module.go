@@ -46,6 +46,10 @@ type Module struct {
 	// Directives holds the //go:generate lines go generate would see, sorted by
 	// directory, file, and line.
 	Directives []generate.Directive
+
+	// beneath holds the modules it requires whose paths are under its own,
+	// whose packages are not its packages, for all that their paths look so.
+	beneath []string
 }
 
 // Package is a directory of Go files.
@@ -92,16 +96,25 @@ func Find(dir string) (*Module, error) {
 }
 
 func load(dir string, gomod []byte) (*Module, error) {
-	modPath := modfile.ModulePath(gomod)
-	if modPath == "" {
-		return nil, fmt.Errorf("%s declares no module", filepath.Join(dir, "go.mod"))
+	name := filepath.Join(dir, "go.mod")
+	f, err := modfile.ParseLax(name, gomod, nil)
+	if err != nil {
+		return nil, fmt.Errorf("read the module: %w", err)
+	}
+	if f.Module == nil {
+		return nil, fmt.Errorf("%s declares no module", name)
 	}
 
-	m := &Module{Dir: dir, Path: modPath, Packages: make(map[string]*Package)}
+	m := &Module{Dir: dir, Path: f.Module.Mod.Path, Packages: make(map[string]*Package)}
+	for _, r := range f.Require {
+		if strings.HasPrefix(r.Mod.Path, m.Path+"/") {
+			m.beneath = append(m.beneath, r.Mod.Path)
+		}
+	}
 	r := newReader()
-	err := Walk(dir, func(file string) error { return r.read(m, file) })
+	err = Walk(dir, func(file string) error { return r.read(m, file) })
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", modPath, err)
+		return nil, fmt.Errorf("read %s: %w", m.Path, err)
 	}
 
 	for _, p := range m.Packages {
@@ -212,6 +225,9 @@ func (r *reader) read(m *Module, file string) error {
 		if pkgName == "" {
 			pkgName = p.Name
 		}
+		if p.Name == "" && !strings.HasSuffix(name, "_test.go") {
+			p.Name = pkgName
+		}
 		p.Generated[file] = pkgName
 		return nil
 	}
@@ -300,13 +316,16 @@ func (m *Module) PackageOf(file string) (string, bool) {
 }
 
 // DirOf returns the directory of the package at importPath in m, whether it
-// exists or not. It returns false for a path outside m.
+// exists or not. It returns false for a path outside m, as one that a module it
+// requires holds is, whatever its path looks like.
 func (m *Module) DirOf(importPath string) (string, bool) {
 	if importPath == m.Path {
 		return m.Dir, true
 	}
 	rel, ok := strings.CutPrefix(importPath, m.Path+"/")
-	if !ok {
+	if !ok || slices.ContainsFunc(m.beneath, func(mod string) bool {
+		return importPath == mod || strings.HasPrefix(importPath, mod+"/")
+	}) {
 		return "", false
 	}
 	return filepath.Join(m.Dir, filepath.FromSlash(rel)), true

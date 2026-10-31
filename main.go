@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -108,7 +109,14 @@ func gen(ctx context.Context, e env, args []string) int {
 		return exitUsage
 	}
 
-	p, goroot, err := makePlan(ctx, e.dir, fs.Args())
+	// What generators report is by the paths the go command resolves, so the
+	// module has to go by those too.
+	dir, err := filepath.EvalSymlinks(e.dir)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
+		return run.ExitFailure
+	}
+	p, goroot, err := makePlan(ctx, dir, fs.Args())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return run.ExitFailure
@@ -118,7 +126,7 @@ func gen(ctx context.Context, e env, args []string) int {
 		p.Write(e.stdout)
 	}
 	if len(p.Problems) > 0 {
-		diag.Write(e.stderr, e.dir, p.Problems)
+		diag.Write(e.stderr, dir, p.Problems)
 		return run.ExitFailure
 	}
 	if *showPlan {

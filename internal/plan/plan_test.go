@@ -491,6 +491,93 @@ func TestMake_LinesItDoesNotRun(t *testing.T) {
 	}
 }
 
+// A package under the module's path that a module of its own holds is not one
+// that is missing, whether it is checked out here or not.
+func TestMake_ModulesUnderItsPath(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{
+		"p/p.go": "package p\n\nimport (\n\t_ \"example.com/m/api/v1\"\n\t_ \"example.com/m/nested\"\n)\n\n" +
+			"//go:generate go tool kanna-value\n",
+		"nested/go.mod": "module example.com/m/nested\n",
+		"nested/n.go":   "package nested\n",
+	}
+	dir := write(t, files)
+	gomod := "module example.com/m\n\ngo 1.26.0\n\nrequire example.com/m/api v1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	wantOrder(t, makePlan(t, dir, answers{"p kanna-value": {Packages: []string{"p"}}}), "p/p.go:8 kanna-value")
+}
+
+// A name that a package already read answers to means that one, however many
+// others of the module share it.
+func TestMake_ANameOfAPackageItImports(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{
+		"a/use/u.go":   "package use\n\nimport _ \"example.com/m/a/model\"\n\n//go:generate go tool kanna-validate\n",
+		"a/model/m.go": "package model\n",
+		"b/model/m.go": "package model\n\nimport _ \"example.com/m/a/use\"\n\n//go:generate go tool kanna-value\n",
+	})
+
+	p := makePlan(t, dir, answers{
+		"a/use kanna-validate": {
+			Packages: []string{"a/use"},
+			Refs:     []deps.Ref{{Package: "model", Via: "rule=model.T"}},
+			Writes:   []string{"a/use/validate_gen.go"},
+		},
+		"b/model kanna-value": {Packages: []string{"b/model"}, Writes: []string{"b/model/value_gen.go"}},
+	})
+
+	wantOrder(t, p, "a/use/u.go:5 kanna-validate", "b/model/m.go:5 kanna-value")
+}
+
+// A package holding nothing but output is named by what it will be called.
+func TestMake_ANameOfAPackageNotThereYet(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{
+		"a/a.go": "package a\n\n//go:generate go tool kanna-di\n",
+		"z/z.go": "package z\n\n//go:generate go tool kanna-orm -destination ../infra/pg\n",
+	})
+
+	p := makePlan(t, dir, answers{
+		"a kanna-di": {
+			Packages: []string{"a"},
+			Refs:     []deps.Ref{{Package: "pg", Via: "with=pg.New"}},
+			Writes:   []string{"a/di_gen.go"},
+		},
+		"z kanna-orm -destination ../infra/pg": {Packages: []string{"z"}, Writes: []string{"infra/pg/orm_gen.go"}},
+	})
+
+	wantOrder(t, p, "z/z.go:3 kanna-orm", "a/a.go:3 kanna-di")
+}
+
+func TestMake_IsTheSameEveryTime(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{}
+	a := answers{}
+	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
+		files[name+"/"+name+".go"] = "package " + name + "\n\n//go:generate go tool kanna-value\n" +
+			"//go:generate go tool kanna-validate\n"
+		a[name+" kanna-value"] = deps.Report{
+			Packages: []string{name}, SourcesOnly: true, Writes: []string{name + "/value_gen.go"},
+		}
+		a[name+" kanna-validate"] = deps.Report{Packages: []string{name}, Writes: []string{name + "/validate_gen.go"}}
+	}
+	dir := write(t, files)
+
+	first := written(makePlan(t, dir, a))
+	for range 5 {
+		if got := written(makePlan(t, dir, a)); got != first {
+			t.Fatalf("got:\n%s\nfirst:\n%s", got, first)
+		}
+	}
+}
+
 // Lines of other generators are none of kanna's business.
 func TestMake_OtherGenerators(t *testing.T) {
 	t.Parallel()

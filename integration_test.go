@@ -62,6 +62,31 @@ func TestProject(t *testing.T) {
 			t.Errorf("go %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
+
+	// A mistake in code written by hand stays one, with output set aside or not.
+	breakHandwritten(t, dir)
+	if got := kanna(t, dir, "gen"); got.code != 1 || !strings.Contains(got.stdout, "not an int") {
+		t.Errorf("run on a type error: %+v", got)
+	}
+}
+
+// breakHandwritten adds a type error to the last file holding a directive.
+func breakHandwritten(t *testing.T, dir string) {
+	t.Helper()
+
+	m, err := module.Find(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := m.Directives[len(m.Directives)-1].File
+	src, err := os.ReadFile(file) //nolint:gosec // a file of the project
+	if err != nil {
+		t.Fatal(err)
+	}
+	src = append(src, []byte("\nvar _ int = \"not an int\"\n")...)
+	if err := os.WriteFile(file, src, 0o600); err != nil { //nolint:gosec // the same
+		t.Fatal(err)
+	}
 }
 
 // removeGenerated removes what kanna generators wrote in the module at dir.

@@ -3,6 +3,7 @@ package plan
 import (
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -170,8 +171,13 @@ func (g *graph) readsOf(t *Task) map[string]read {
 	for _, path := range t.Report.Packages {
 		visit(path, read{kind: Imports})
 	}
+	imported := maps.Clone(found)
 	for _, ref := range t.Report.Refs {
-		for _, path := range g.named(ref.Package) {
+		paths := g.named(ref.Package)
+		if slices.ContainsFunc(paths, func(path string) bool { _, ok := imported[path]; return ok }) {
+			continue // the one it means, however many others share its name
+		}
+		for _, path := range paths {
 			visit(path, read{kind: Names, via: ref.Via})
 		}
 	}
@@ -359,7 +365,7 @@ func (g *graph) missing(tasks []*Task) []diag.Diag {
 		ds = append(ds, missingInputs(g.m, t)...)
 		reads := g.reads[t]
 		for _, path := range slices.Sorted(maps.Keys(reads)) {
-			if g.m.Packages[path] != nil || len(g.writers[path]) > 0 || reported[path] {
+			if g.m.Packages[path] != nil || len(g.writers[path]) > 0 || reported[path] || g.hasGoFiles(path) {
 				continue
 			}
 			reported[path] = true
@@ -369,6 +375,17 @@ func (g *graph) missing(tasks []*Task) []diag.Diag {
 		}
 	}
 	return ds
+}
+
+// hasGoFiles reports whether the directory of the package at path holds Go
+// files, as that of a module nested in this one does, which is not read.
+func (g *graph) hasGoFiles(path string) bool {
+	dir, _ := g.m.DirOf(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasSuffix(e.Name(), ".go") })
 }
 
 // external returns the packages tasks read that another generator wrote.
