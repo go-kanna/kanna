@@ -3,7 +3,7 @@
 # one, against the family workspace, dev/go-kanna.work: each module is built
 # from the checkout beside it, not from the release its go.mod requires.
 #
-#	dev/test-all.sh            # internal and the seven generators
+#	dev/test-all.sh            # internal, the seven generators, and this repository
 #	dev/test-all.sh showcase   # the repositories named, here one whose tests need its database
 set -euo pipefail
 
@@ -11,7 +11,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 work=$root/kanna/dev/go-kanna.work
 repos=("$@")
 if [ ${#repos[@]} -eq 0 ]; then
-	repos=(internal di fixture i18n mapper orm validate value)
+	repos=(internal di fixture i18n mapper orm validate value kanna)
 fi
 
 failed=()

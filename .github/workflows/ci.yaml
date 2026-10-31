@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.15.0
+
+  test:
+    strategy:
+      matrix:
+        include:
+          - go-version-file: go.mod
+          - go-version: stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: ${{ matrix.go-version-file }}
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        run: make test
+
+      - name: Upload coverage to Codecov
+        if: matrix.go-version-file == 'go.mod'
+        uses: codecov/codecov-action@v7.1.1
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # kanna gen on a project of its own size: that what is committed holds, that a
+  # second run changes nothing, and that one run brings back all kanna wrote.
+  showcase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: kanna
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: go-kanna/showcase
+          path: showcase
+
+      # The showcase's Go, which may be newer than this module's.
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: showcase/go.mod
+
+      - name: Run kanna gen on the showcase
+        working-directory: kanna
+        env:
+          KANNA_PROJECT: ${{ github.workspace }}/showcase
+        run: go test -run TestProject -count=1 .
