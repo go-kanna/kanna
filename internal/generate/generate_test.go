@@ -1,6 +1,7 @@
 package generate_test
 
 import (
+	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +41,7 @@ func TestDirective_Words(t *testing.T) {
 	t.Parallel()
 
 	d := generate.Directive{File: "/m/p/f.go", Line: 7, Package: "p"}
-	env := d.Env("/goroot")
+	env := d.Env(build.Context{GOROOT: "/goroot"})
 
 	tests := []struct {
 		text string
@@ -122,7 +123,7 @@ func TestDirective_Command(t *testing.T) {
 	dir := t.TempDir()
 	d := generate.Directive{File: filepath.Join(dir, "f.go"), Line: 7, Package: "p"}
 
-	cmd := d.Command(t.Context(), goroot, []string{"go", "version"})
+	cmd := d.Command(t.Context(), build.Context{GOROOT: goroot, GOOS: "plan9"}, []string{"go", "version"})
 	if want := filepath.Join(goroot, "bin", "go"); cmd.Path != want {
 		t.Errorf("Path = %q, want %q", cmd.Path, want)
 	}
@@ -132,15 +133,13 @@ func TestDirective_Command(t *testing.T) {
 	if cmd.Dir != dir {
 		t.Errorf("Dir = %q, want %q", cmd.Dir, dir)
 	}
-	if !slices.Contains(cmd.Env, "GOFILE=f.go") {
-		t.Errorf("Env holds no GOFILE: %q", cmd.Env)
+	if !slices.Contains(cmd.Env, "GOFILE=f.go") || !slices.Contains(cmd.Env, "GOOS=plan9") {
+		t.Errorf("Env holds no GOFILE or GOOS: %q", cmd.Env)
 	}
 }
 
 func TestDirective_Env(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
-	t.Setenv("GOOS", "plan9")
-	t.Setenv("GOARCH", "amd64")
 
 	d := generate.Directive{File: "/m/p/f.go", Line: 7, Package: "p_test"}
 
@@ -155,7 +154,7 @@ func TestDirective_Env(t *testing.T) {
 		"PATH=" + filepath.Join("/goroot", "bin") + string(os.PathListSeparator) + "/usr/bin",
 		"PWD=/m/p",
 	}
-	if got := d.Env("/goroot"); !slices.Equal(got, want) {
+	if got := d.Env(build.Context{GOROOT: "/goroot", GOOS: "plan9", GOARCH: "amd64"}); !slices.Equal(got, want) {
 		t.Errorf("Env() = %q, want %q", got, want)
 	}
 }

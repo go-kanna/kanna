@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"os"
 	"os/signal"
@@ -115,7 +116,7 @@ func gen(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return run.ExitFailure
 	}
-	p, goroot, err := makePlan(ctx, dir, fs.Args())
+	p, ctxt, err := makePlan(ctx, dir, fs.Args())
 	if err != nil {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return run.ExitFailure
@@ -131,31 +132,31 @@ func gen(ctx context.Context, e env, args []string) int {
 	if *showPlan {
 		return run.ExitOK
 	}
-	return run.Run(ctx, p, run.Config{GOROOT: goroot, Check: *check || byEnv, Out: e.stdout})
+	return run.Run(ctx, p, run.Config{Build: ctxt, Check: *check || byEnv, Out: e.stdout})
 }
 
 // makePlan plans a run of what patterns, read from dir, select in the module of
-// dir, and returns it with the GOROOT it is to run with.
-func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, string, error) {
-	goroot, tags, err := goEnv(ctx, dir)
+// dir, and returns it with the build context it is to run with.
+func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, build.Context, error) {
+	ctxt, err := goContext(ctx, dir)
 	if err != nil {
-		return nil, "", err
+		return nil, build.Context{}, err
 	}
-	m, err := module.Find(dir, tags...)
+	m, err := module.Find(dir, ctxt)
 	if err != nil {
-		return nil, "", fmt.Errorf("find the module: %w", err)
+		return nil, build.Context{}, fmt.Errorf("find the module: %w", err)
 	}
 	selection, err := m.Select(dir, patterns)
 	if err != nil {
-		return nil, "", fmt.Errorf("read the packages: %w", err)
+		return nil, build.Context{}, fmt.Errorf("read the packages: %w", err)
 	}
 	p, err := plan.Make(ctx, plan.Config{
-		Module: m, Selection: selection, Patterns: patterns, GOROOT: goroot, Ask: plan.Ask(goroot),
+		Module: m, Selection: selection, Patterns: patterns, Build: ctxt, Ask: plan.Ask(ctxt),
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("plan: %w", err)
+		return nil, build.Context{}, fmt.Errorf("plan: %w", err)
 	}
-	return p, goroot, nil
+	return p, ctxt, nil
 }
 
 // checkEnv reports whether KANNA_CHECK turns on --check, as it does -check in

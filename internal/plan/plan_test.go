@@ -3,6 +3,7 @@ package plan_test
 import (
 	"context"
 	"fmt"
+	"go/build"
 	"os"
 	"path/filepath"
 	"slices"
@@ -81,7 +82,7 @@ func (a answers) ask(dir string) plan.Asker {
 func makePlan(t *testing.T, dir string, a answers, patterns ...string) *plan.Plan {
 	t.Helper()
 
-	m, err := module.Find(dir)
+	m, err := module.Find(dir, build.Default)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func makePlan(t *testing.T, dir string, a answers, patterns ...string) *plan.Pla
 		t.Fatal(err)
 	}
 	p, err := plan.Make(t.Context(), plan.Config{
-		Module: m, Selection: selection, Patterns: patterns, GOROOT: "/goroot", Ask: a.ask(dir),
+		Module: m, Selection: selection, Patterns: patterns, Build: build.Context{GOROOT: "/goroot"}, Ask: a.ask(dir),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -659,7 +660,7 @@ func TestAsk_NoSuchTool(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{"p/p.go": "package p\n\n//go:generate go tool kanna-value\n"})
-	m, err := module.Find(dir)
+	m, err := module.Find(dir, build.Default)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,8 +669,10 @@ func TestAsk_NoSuchTool(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	ctxt := build.Default
+	ctxt.GOROOT = goroot(t)
 	p, err := plan.Make(t.Context(), plan.Config{
-		Module: m, Selection: selection, GOROOT: goroot(t), Ask: plan.Ask(goroot(t)),
+		Module: m, Selection: selection, Build: ctxt, Ask: plan.Ask(ctxt),
 	})
 	if err != nil {
 		t.Fatal(err)

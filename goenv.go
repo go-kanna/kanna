@@ -1,86 +1,51 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"go/build"
 	"os/exec"
 	"strings"
 )
 
-// goEnv reads the toolchain and flags of the go command in dir, including
-// settings saved with go env -w.
-func goEnv(ctx context.Context, dir string) (string, []string, error) {
-	cmd := exec.CommandContext(ctx, "go", "env", "-json", "GOROOT", "GOFLAGS")
+// contextFormat has go list print the fields of its build context that decide
+// which files it reads, a line for each, in the order goContext takes them.
+const contextFormat = `{{context.GOROOT}}
+{{context.GOOS}}
+{{context.GOARCH}}
+{{context.CgoEnabled}}
+{{context.Compiler}}
+{{join context.BuildTags " "}}
+{{join context.ToolTags " "}}
+{{join context.ReleaseTags " "}}`
+
+// goContext returns the build context of the go command in dir, which goes by
+// the environment, GOFLAGS, and what go env -w saved. It asks about package
+// unsafe, which is there whatever state the module is in.
+func goContext(ctx context.Context, dir string) (build.Context, error) {
+	cmd := exec.CommandContext(ctx, "go", "list", "-f", contextFormat, "unsafe")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", nil, fmt.Errorf("run go env: %w", err)
-	}
-	var env map[string]string
-	if err := json.Unmarshal(out, &env); err != nil {
-		return "", nil, fmt.Errorf("read go env: %w", err)
-	}
-	tags, err := buildTags(env["GOFLAGS"])
-	if err != nil {
-		return "", nil, fmt.Errorf("read GOFLAGS: %w", err)
-	}
-	return env["GOROOT"], tags, nil
-}
-
-func buildTags(flags string) ([]string, error) {
-	words, err := splitFlags(flags)
-	if err != nil {
-		return nil, err
-	}
-	var tags []string
-	for _, word := range words {
-		name, value, hasValue := strings.Cut(word, "=")
-		if name != "-tags" && name != "--tags" {
-			continue
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			return build.Context{}, fmt.Errorf("read the go environment: %s", bytes.TrimSpace(exit.Stderr))
 		}
-		if !hasValue {
-			return nil, fmt.Errorf("%s needs a value, as -tags=tag1,tag2", name)
-		}
-		tags = nil
-		if strings.ContainsAny(value, " '") {
-			tags, err = splitFlags(value)
-			if err != nil {
-				return nil, err
-			}
-			continue
-		}
-		for tag := range strings.SplitSeq(value, ",") {
-			if tag != "" {
-				tags = append(tags, tag)
-			}
-		}
+		return build.Context{}, fmt.Errorf("read the go environment: %w", err)
 	}
-	return tags, nil
-}
-
-// splitFlags follows the go command's GOFLAGS quoting: a whole word may be
-// single- or double-quoted, with no expansion or unescaping inside it.
-func splitFlags(text string) ([]string, error) {
-	var words []string
-	for text = strings.TrimLeft(text, " \t\r\n"); text != ""; text = strings.TrimLeft(text, " \t\r\n") {
-		if text[0] == '\'' || text[0] == '"' {
-			quote := text[0]
-			text = text[1:]
-			end := strings.IndexByte(text, quote)
-			if end < 0 {
-				return nil, fmt.Errorf("unterminated %c string", quote)
-			}
-			words = append(words, text[:end])
-			text = text[end+1:]
-			continue
-		}
-		end := strings.IndexAny(text, " \t\r\n")
-		if end < 0 {
-			end = len(text)
-		}
-		words = append(words, text[:end])
-		text = text[end:]
+	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if len(lines) != 8 {
+		return build.Context{}, fmt.Errorf("read the go environment: %q", out)
 	}
-	return words, nil
+	return build.Context{
+		GOROOT:      lines[0],
+		GOOS:        lines[1],
+		GOARCH:      lines[2],
+		CgoEnabled:  lines[3] == "true",
+		Compiler:    lines[4],
+		BuildTags:   strings.Fields(lines[5]),
+		ToolTags:    strings.Fields(lines[6]),
+		ReleaseTags: strings.Fields(lines[7]),
+	}, nil
 }

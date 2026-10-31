@@ -1,6 +1,7 @@
 package module_test
 
 import (
+	"go/build"
 	"maps"
 	"os"
 	"path/filepath"
@@ -39,11 +40,61 @@ func write(t *testing.T, files map[string]string) string {
 func find(t *testing.T, dir string) *module.Module {
 	t.Helper()
 
-	m, err := module.Find(dir)
+	m, err := module.Find(dir, build.Default)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return m
+}
+
+func TestFind_SelectsFilesByTheContext(t *testing.T) {
+	t.Parallel()
+
+	const line = "\n\npackage p\n\n//go:generate go tool kanna-value\n"
+	dir := write(t, map[string]string{
+		"p/p.go":         "package p\n",
+		"p/arch.go":      "//go:build mips" + line,
+		"p/cgo.go":       "//go:build cgo" + line,
+		"p/compiler.go":  "//go:build gccgo" + line,
+		"p/generate.go":  "//go:build generate" + line,
+		"p/os.go":        "//go:build plan9" + line,
+		"p/release.go":   "//go:build kannarelease" + line,
+		"p/tag.go":       "//go:build kannatag" + line,
+		"p/toolchain.go": "//go:build kannatool" + line,
+	})
+
+	tests := []struct {
+		name string
+		ctxt build.Context
+		want string
+	}{
+		{name: "GOOS", ctxt: build.Context{GOOS: "plan9"}, want: "os.go"},
+		{name: "GOARCH", ctxt: build.Context{GOARCH: "mips"}, want: "arch.go"},
+		{name: "cgo", ctxt: build.Context{CgoEnabled: true}, want: "cgo.go"},
+		{name: "the compiler", ctxt: build.Context{Compiler: "gccgo"}, want: "compiler.go"},
+		{name: "a build tag", ctxt: build.Context{BuildTags: []string{"kannatag"}}, want: "tag.go"},
+		{name: "a tool tag", ctxt: build.Context{ToolTags: []string{"kannatool"}}, want: "toolchain.go"},
+		{name: "a release tag", ctxt: build.Context{ReleaseTags: []string{"kannarelease"}}, want: "release.go"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, err := module.Find(dir, tt.ctxt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, d := range m.Directives {
+				got = append(got, filepath.Base(d.File))
+			}
+			want := []string{tt.want, "generate.go"}
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("Directives in %q, want %q", got, want)
+			}
+		})
+	}
 }
 
 func TestFind_FromBelowTheRoot(t *testing.T) {
@@ -61,7 +112,7 @@ func TestFind_FromBelowTheRoot(t *testing.T) {
 func TestFind_NoModule(t *testing.T) {
 	t.Parallel()
 
-	if _, err := module.Find(t.TempDir()); err == nil {
+	if _, err := module.Find(t.TempDir(), build.Default); err == nil {
 		t.Error("Find() outside a module reported no error")
 	}
 }
@@ -291,12 +342,12 @@ func TestFind_BadGoMod(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{"go.mod": "go 1.26.0\n"})
-	if _, err := module.Find(dir); err == nil {
+	if _, err := module.Find(dir, build.Default); err == nil {
 		t.Error("Find() of a go.mod without a module reported no error")
 	}
 
 	dir = write(t, map[string]string{"go.mod": "this is not a go.mod\n"})
-	if _, err := module.Find(dir); err == nil {
+	if _, err := module.Find(dir, build.Default); err == nil {
 		t.Error("Find() of a bad go.mod reported no error")
 	}
 }

@@ -1,50 +1,95 @@
 package main
 
 import (
+	"go/build"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
 
-func TestBuildTags(t *testing.T) {
-	t.Parallel()
+func TestGoContext(t *testing.T) {
+	t.Setenv("GOOS", "plan9")
+	t.Setenv("GOARCH", "arm")
+	t.Setenv("CGO_ENABLED", "0")
+	t.Setenv("GOFLAGS", "'-tags=foo bar'")
 
-	tests := []struct {
-		flags string
-		want  []string
-	}{
-		{flags: ""},
-		{flags: "-mod=readonly -tags=foo,bar", want: []string{"foo", "bar"}},
-		{flags: "--tags=foo,,bar,", want: []string{"foo", "bar"}},
-		{flags: "'-tags=foo bar'", want: []string{"foo", "bar"}},
-		{flags: `"-tags=foo bar"`, want: []string{"foo", "bar"}},
-		{flags: "-tags=old -tags=new", want: []string{"new"}},
-		{flags: "-tags=old -tags="},
-		{flags: `'-ldflags=-X main.text=-tags=wrong' -tags=right`, want: []string{"right"}},
+	got, err := goContext(t.Context(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.flags, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := buildTags(tt.flags)
-			if err != nil || !slices.Equal(got, tt.want) {
-				t.Fatalf("buildTags(%q) = %q, %v; want %q", tt.flags, got, err, tt.want)
-			}
-		})
+	if got.GOOS != "plan9" || got.GOARCH != "arm" || got.CgoEnabled ||
+		!slices.Equal(got.BuildTags, []string{"foo", "bar"}) {
+		t.Errorf("goContext() = %+v", got)
+	}
+	if got.GOROOT == "" || got.Compiler != runtime.Compiler || len(got.ToolTags) == 0 ||
+		!slices.Equal(got.ReleaseTags, build.Default.ReleaseTags) {
+		t.Errorf("goContext() = %+v", got)
 	}
 }
 
-func TestBuildTags_Invalid(t *testing.T) {
-	t.Parallel()
+func TestGen_BadGOFLAGS(t *testing.T) {
+	t.Setenv("GOFLAGS", "-tags")
 
-	for _, flags := range []string{"-tags", "--tags", "'-tags=foo", `"-tags=foo`} {
-		t.Run(flags, func(t *testing.T) {
-			t.Parallel()
+	got := kanna(t, t.TempDir(), "gen")
 
-			if tags, err := buildTags(flags); err == nil {
-				t.Fatalf("buildTags(%q) = %q without an error", flags, tags)
-			}
-		})
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
 	}
+	contains(t, got.stderr, "read the go environment", "-tags")
+}
+
+// savedGoEnv writes settings where GOENV can name them, as go env -w saves them
+// but away from what the user saved, and clears what would override them.
+func savedGoEnv(t *testing.T, settings string) string {
+	t.Helper()
+
+	for _, name := range []string{"GOOS", "GOARCH", "CGO_ENABLED"} {
+		t.Setenv(name, "")
+	}
+	file := filepath.Join(t.TempDir(), "goenv")
+	if err := os.WriteFile(file, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func TestGen_SavedBuildEnvironment(t *testing.T) {
+	t.Setenv("GOENV", savedGoEnv(t, "CGO_ENABLED=0\n"))
+
+	dir := project(t, map[string]string{
+		"a/a.go": "//go:build !cgo\n\npackage a\n\n//go:generate go tool kanna-fake -out a_gen.go\n",
+	})
+
+	got := kanna(t, dir, "gen", "--plan")
+	if got.code != 0 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stdout, "1. a/a.go:5")
+}
+
+// A saved GOOS selects the files, and reaches go tool, which builds what it runs
+// for that GOOS. That is no success with nothing to do, as a run of what only
+// this machine's files say would have it.
+func TestGen_SavedTargetOfAnotherMachine(t *testing.T) {
+	goos := "linux"
+	if runtime.GOOS == goos {
+		goos = "darwin"
+	}
+	t.Setenv("GOENV", savedGoEnv(t, "GOOS="+goos+"\n"))
+
+	file := "a/a_" + goos + ".go"
+	dir := project(t, map[string]string{
+		"a/doc.go": "package a\n",
+		file:       "package a\n\n//go:generate go tool kanna-fake -out a_gen.go\n",
+	})
+
+	got := kanna(t, dir, "gen", "--check")
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stderr, file+":3", "kanna-fake cannot run on this machine", "for "+goos+"/"+runtime.GOARCH)
 }
 
 func TestGen_GOFLAGSBuildTags(t *testing.T) {
