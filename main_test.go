@@ -344,6 +344,28 @@ func TestGen_Plan(t *testing.T) {
 	sameTree(t, tree(t, dir), before)
 }
 
+func TestGen_PlanShowsACycleWithAnOutsideDependency(t *testing.T) {
+	t.Parallel()
+
+	dir := project(t, map[string]string{
+		"a/a.go": "package a\n\nimport (\n\t_ \"example.com/m/b\"\n\t_ \"example.com/m/d\"\n)\n\n" +
+			"//go:generate go tool kanna-fake -out a_gen.go\n",
+		"b/b.go": "package b\n\nimport _ \"example.com/m/c\"\n\n//go:generate go tool kanna-fake -out b_gen.go\n",
+		"c/c.go": "package c\n\nimport _ \"example.com/m/a\"\n\n//go:generate go tool kanna-fake -out c_gen.go\n",
+		"d/d.go": "package d\n\n//go:generate go tool kanna-fake -out d_gen.go\n",
+	})
+	before := tree(t, dir)
+
+	got := kanna(t, dir, "gen", "--plan")
+
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stdout, "1. d/d.go:3", "writes: a/a_gen.go", "writes: b/b_gen.go", "writes: c/c_gen.go")
+	contains(t, got.stderr, "wait for each other", "waits for")
+	sameTree(t, tree(t, dir), before)
+}
+
 func TestGen_Check(t *testing.T) {
 	t.Parallel()
 

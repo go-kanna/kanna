@@ -87,9 +87,20 @@ func shown(t *Task) []Edge {
 
 // comesAfter reports whether t comes after other, through any tasks between.
 func comesAfter(t, other *Task) bool {
-	for _, e := range t.After {
-		if e.From == other || comesAfter(e.From, other) {
-			return true
+	seen := make(map[*Task]bool)
+	left := []*Task{t}
+	for len(left) > 0 {
+		t = left[len(left)-1]
+		left = left[:len(left)-1]
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		for _, e := range t.After {
+			if e.From == other {
+				return true
+			}
+			left = append(left, e.From)
 		}
 	}
 	return false
