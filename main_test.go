@@ -422,6 +422,31 @@ func TestGen_BadCheckValue(t *testing.T) {
 	contains(t, got.stderr, `KANNA_CHECK="maybe" is not a boolean`)
 }
 
+func TestGen_RejectsDepsFlagBeforeRunningATool(t *testing.T) {
+	t.Parallel()
+
+	for _, arg := range []string{"-deps", "-deps=true", "-deps=false", "--deps", "--deps=true", "--deps=false"} {
+		for _, mode := range []string{"--plan", "--check"} {
+			t.Run(arg+"/"+mode, func(t *testing.T) {
+				t.Parallel()
+
+				dir := project(t, map[string]string{
+					"a/a.go": "package a\n\n//go:generate go tool kanna-fake " + arg + " -out a_gen.go\n",
+				})
+				before := tree(t, dir)
+
+				got := kanna(t, dir, "gen", mode)
+
+				if got.code != 1 {
+					t.Fatalf("%+v", got)
+				}
+				contains(t, got.stderr, "a/a.go:3", "-deps is reserved for kanna gen")
+				sameTree(t, tree(t, dir), before)
+			})
+		}
+	}
+}
+
 func TestGen_ProblemsStopBeforeAnythingRuns(t *testing.T) {
 	t.Parallel()
 

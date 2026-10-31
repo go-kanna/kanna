@@ -65,6 +65,16 @@ type Asker func(ctx context.Context, t *Task) (deps.Report, error)
 // known, whatever version of it the module resolves to.
 func Ask(goroot string) Asker {
 	return func(ctx context.Context, t *Task) (deps.Report, error) {
+		for _, arg := range t.Args {
+			if arg == "--" {
+				break
+			}
+			name, _, _ := strings.Cut(arg, "=")
+			if name == "-deps" || name == "--deps" {
+				return deps.Report{}, fmt.Errorf("%s: -deps is reserved for kanna gen; remove it from the go:generate line", t.Tool)
+			}
+		}
+
 		cmd := t.At[0].Command(ctx, goroot, t.Words("-deps"))
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
