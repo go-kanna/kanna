@@ -68,6 +68,12 @@ external prerequisites:
 - run: go tool kanna gen --check
 ```
 
+`--check` が示すのは差分のあるファイルで、差分の中身は表示しません。CI で中身を読むには、実際に生成して git に尋ねます。`--check` が検査できなかった task まで変更をたどれます。`git add -AN` は、まだコミットされていないファイルも `git diff` に表示させるためのものです:
+
+```yaml
+- run: go tool kanna gen && git add -AN && git diff --exit-code
+```
+
 ### 実行するもの、しないもの
 
 task は `//go:generate go tool kanna-*` の一行で、`go generate` と同じように実行します。パッケージのディレクトリで、`GOFILE` などの環境変数付きで実行し、行の引用符や `$` の変数も同じように読みます。同じパッケージに同じ行が二つあれば、一回だけ実行します。
