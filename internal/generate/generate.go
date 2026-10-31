@@ -5,8 +5,10 @@ package generate
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -109,6 +111,24 @@ func (d Directive) Words(env []string) ([]string, error) {
 		words[i] = os.Expand(word, func(name string) string { return lookup(env, name) })
 	}
 	return words, nil
+}
+
+// Command returns the command words run for d, as go generate starts it: in the
+// directory of d, with what Env gives on top of the environment of the process,
+// and preferring what is in goroot for a bare name, for go to be the one that
+// runs this.
+func (d Directive) Command(ctx context.Context, goroot string, words []string) *exec.Cmd {
+	name := words[0]
+	if !strings.ContainsRune(name, filepath.Separator) {
+		if path, err := exec.LookPath(filepath.Join(goroot, "bin", name)); err == nil {
+			name = path
+		}
+	}
+	cmd := exec.CommandContext(ctx, name, words[1:]...) //nolint:gosec // what the directive says, as for go generate
+	cmd.Args[0] = words[0]
+	cmd.Dir = filepath.Dir(d.File)
+	cmd.Env = append(os.Environ(), d.Env(goroot)...)
+	return cmd
 }
 
 // quoted returns the quoted word line starts with, unquoted, and what follows.

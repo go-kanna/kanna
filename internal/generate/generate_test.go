@@ -2,6 +2,7 @@ package generate_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -106,6 +107,32 @@ func TestDirective_Words_Errors(t *testing.T) {
 				t.Errorf("Words() = %v, want an error saying %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestDirective_Command(t *testing.T) {
+	t.Parallel()
+
+	out, err := exec.CommandContext(t.Context(), "go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goroot := strings.TrimSpace(string(out))
+	dir := t.TempDir()
+	d := generate.Directive{File: filepath.Join(dir, "f.go"), Line: 7, Package: "p"}
+
+	cmd := d.Command(t.Context(), goroot, []string{"go", "version"})
+	if want := filepath.Join(goroot, "bin", "go"); cmd.Path != want {
+		t.Errorf("Path = %q, want %q", cmd.Path, want)
+	}
+	if cmd.Args[0] != "go" {
+		t.Errorf("Args[0] = %q, want go", cmd.Args[0])
+	}
+	if cmd.Dir != dir {
+		t.Errorf("Dir = %q, want %q", cmd.Dir, dir)
+	}
+	if !slices.Contains(cmd.Env, "GOFILE=f.go") {
+		t.Errorf("Env holds no GOFILE: %q", cmd.Env)
 	}
 }
 

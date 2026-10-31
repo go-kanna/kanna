@@ -8,6 +8,7 @@
 package module
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -15,6 +16,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -68,10 +70,10 @@ type Package struct {
 	// with its package clause.
 	Generated map[string]string
 
-	// Foreign names the generator that wrote every file of the package, when
-	// that is not one of kanna's, as a package buf generates. A generator's
-	// name is "" when its marker does not say.
-	Foreign string
+	// Foreign names what wrote every file of the package, when none of that is
+	// kanna's, as for a package buf generates, or holds "something" for a
+	// marker that does not say.
+	Foreign []string
 }
 
 // Find returns the module holding dir: the nearest go.mod at dir or above.
@@ -107,8 +109,8 @@ func load(dir string, gomod []byte) (*Module, error) {
 		p.Imports = slices.Compact(p.Imports)
 		slices.Sort(p.TestImports)
 		p.TestImports = slices.Compact(p.TestImports)
-		if name, ok := r.foreign[p.Path]; ok && name.only {
-			p.Foreign = name.generator
+		if f := r.foreign[p.Path]; f != nil && !f.handWritten {
+			p.Foreign = slices.Sorted(maps.Keys(f.generators))
 		}
 		if p.Name == "" {
 			p.Name = filepath.Base(p.Dir)
@@ -163,17 +165,17 @@ type reader struct {
 	// looks at, which has the tag "generate" too.
 	build, generate build.Context
 
-	foreign map[string]foreign
+	foreign map[string]*foreign
 }
 
-// foreign is what a package's files say of the generator behind them.
+// foreign is what the files of a package say of what wrote them.
 type foreign struct {
-	generator string
-	only      bool
+	generators  map[string]bool
+	handWritten bool
 }
 
 func newReader() *reader {
-	r := &reader{build: build.Default, generate: build.Default, foreign: make(map[string]foreign)}
+	r := &reader{build: build.Default, generate: build.Default, foreign: make(map[string]*foreign)}
 	r.generate.BuildTags = append(slices.Clip(r.generate.BuildTags), "generate")
 	return r
 }
@@ -247,19 +249,19 @@ func addImports(p *Package, f *ast.File, name string) {
 	}
 }
 
-// tell records that a file of the package at path was, or was not, written by
-// generator.
+// tell records that a file of the package at path was written by generator, or
+// by hand when generated is false.
 func (r *reader) tell(path, generator string, generated bool) {
-	f, seen := r.foreign[path]
-	switch {
-	case !generated:
-		f.only = false
-	case !seen:
-		f = foreign{generator: generator, only: true}
-	case f.generator != generator:
-		f.only = false
+	f := r.foreign[path]
+	if f == nil {
+		f = &foreign{generators: make(map[string]bool)}
+		r.foreign[path] = f
 	}
-	r.foreign[path] = f
+	if generated {
+		f.generators[cmp.Or(generator, "something")] = true
+	} else {
+		f.handWritten = true
+	}
 }
 
 // generatorOf returns the generator src's marker names, and whether src carries
