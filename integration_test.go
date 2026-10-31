@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"go/build"
 	"io/fs"
 	"maps"
 	"os"
@@ -74,7 +75,7 @@ func TestProject(t *testing.T) {
 func breakHandwritten(t *testing.T, dir string) {
 	t.Helper()
 
-	m, err := module.Find(dir)
+	m, err := module.Find(dir, build.Default)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func breakHandwritten(t *testing.T, dir string) {
 func removeGenerated(t *testing.T, dir string) {
 	t.Helper()
 
-	m, err := module.Find(dir)
+	m, err := module.Find(dir, build.Default)
 	if err != nil {
 		t.Fatal(err)
 	}

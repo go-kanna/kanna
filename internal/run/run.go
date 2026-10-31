@@ -9,6 +9,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"go/build"
 	"io"
 	"io/fs"
 	"maps"
@@ -30,8 +31,8 @@ const (
 
 // Config says how to run a plan.
 type Config struct {
-	// GOROOT is what the directives run with.
-	GOROOT string
+	// Build is the build context the directives run with.
+	Build build.Context
 
 	// Check compares what is on disk with what would be generated, writing
 	// nothing.
@@ -136,7 +137,7 @@ func withCause(output string, err error) string {
 // runTask runs t and returns what it printed.
 func runTask(ctx context.Context, t *plan.Task, cfg Config) (string, error) {
 	d := t.At[0]
-	cmd := d.Command(ctx, cfg.GOROOT, t.Words())
+	cmd := d.Command(ctx, cfg.Build, t.Words())
 
 	pending, err := pendingFile(t)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"go/build"
 	"go/token"
 	"maps"
 	"os"
@@ -62,8 +63,8 @@ type Config struct {
 	// Patterns holds the patterns as given, for saying what matches nothing.
 	Patterns []string
 
-	// GOROOT is what the directives run with.
-	GOROOT string
+	// Build is the build context the directives run with.
+	Build build.Context
 
 	// Ask tells what a task reads and writes.
 	Ask Asker
@@ -73,7 +74,7 @@ type Config struct {
 // that holds as much as could be told. The error says it could not plan at all.
 func Make(ctx context.Context, cfg Config) (*Plan, error) {
 	m := cfg.Module
-	tasks, found := tasksOf(m, cfg.GOROOT)
+	tasks, found := tasksOf(m, cfg.Build)
 
 	// One that cannot answer may be a producer of any other, so it stops the
 	// plan wherever it is, unlike a line that is merely not selected.

@@ -7,10 +7,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go/build"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -54,35 +54,21 @@ func Scan(path string, src []byte, pkg string) []Directive {
 	return found
 }
 
-// Env returns the variables go generate sets for a command of d, with goroot
-// as what it takes GOROOT to be. A command starts from the environment of the
-// process with these added.
-func (d Directive) Env(goroot string) []string {
+// Env returns the variables go generate sets for a command of d, with ctxt as
+// its build context. A command starts from the environment of the process with
+// these added.
+func (d Directive) Env(ctxt build.Context) []string {
 	return []string{
-		"GOROOT=" + goroot,
-		"GOARCH=" + goarch(),
-		"GOOS=" + goos(),
+		"GOROOT=" + ctxt.GOROOT,
+		"GOARCH=" + ctxt.GOARCH,
+		"GOOS=" + ctxt.GOOS,
 		"GOFILE=" + filepath.Base(d.File),
 		"GOLINE=" + strconv.Itoa(d.Line),
 		"GOPACKAGE=" + d.Package,
 		"DOLLAR=$",
-		"PATH=" + filepath.Join(goroot, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH=" + filepath.Join(ctxt.GOROOT, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"PWD=" + filepath.Dir(d.File),
 	}
-}
-
-func goarch() string {
-	if v := os.Getenv("GOARCH"); v != "" {
-		return v
-	}
-	return runtime.GOARCH
-}
-
-func goos() string {
-	if v := os.Getenv("GOOS"); v != "" {
-		return v
-	}
-	return runtime.GOOS
 }
 
 // Words splits d into the words of its command: a word ends at a space or a
@@ -115,19 +101,19 @@ func (d Directive) Words(env []string) ([]string, error) {
 
 // Command returns the command words run for d, as go generate starts it: in the
 // directory of d, with what Env gives on top of the environment of the process,
-// and preferring what is in goroot for a bare name, for go to be the one that
-// runs this.
-func (d Directive) Command(ctx context.Context, goroot string, words []string) *exec.Cmd {
+// and preferring what is in the GOROOT of ctxt for a bare name, for go to be the
+// one that runs this.
+func (d Directive) Command(ctx context.Context, ctxt build.Context, words []string) *exec.Cmd {
 	name := words[0]
 	if !strings.ContainsRune(name, filepath.Separator) {
-		if path, err := exec.LookPath(filepath.Join(goroot, "bin", name)); err == nil {
+		if path, err := exec.LookPath(filepath.Join(ctxt.GOROOT, "bin", name)); err == nil {
 			name = path
 		}
 	}
 	cmd := exec.CommandContext(ctx, name, words[1:]...) //nolint:gosec // what the directive says, as for go generate
 	cmd.Args[0] = words[0]
 	cmd.Dir = filepath.Dir(d.File)
-	cmd.Env = append(os.Environ(), d.Env(goroot)...)
+	cmd.Env = append(os.Environ(), d.Env(ctxt)...)
 	return cmd
 }
 

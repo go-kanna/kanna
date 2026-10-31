@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/build"
 	"go/token"
 	"os/exec"
 	"regexp"
@@ -63,7 +64,7 @@ type Asker func(ctx context.Context, t *Task) (deps.Report, error)
 
 // Ask asks the generator of t, which is how what a run reads and writes is
 // known, whatever version of it the module resolves to.
-func Ask(goroot string) Asker {
+func Ask(ctxt build.Context) Asker {
 	return func(ctx context.Context, t *Task) (deps.Report, error) {
 		for _, arg := range t.Args {
 			if arg == "--" {
@@ -75,12 +76,12 @@ func Ask(goroot string) Asker {
 			}
 		}
 
-		cmd := t.At[0].Command(ctx, goroot, t.Words("-deps"))
+		cmd := t.At[0].Command(ctx, ctxt, t.Words("-deps"))
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return deps.Report{}, whyNot(ctx, goroot, t, stderr.String(), err)
+			return deps.Report{}, whyNot(ctx, ctxt, t, stderr.String(), err)
 		}
 
 		var r deps.Report
@@ -99,14 +100,14 @@ func Ask(goroot string) Asker {
 }
 
 // whyNot says why asking t failed, with stderr, what it reported.
-func whyNot(ctx context.Context, goroot string, t *Task, stderr string, err error) error {
+func whyNot(ctx context.Context, ctxt build.Context, t *Task, stderr string, err error) error {
 	exit, ran := errors.AsType[*exec.ExitError](err)
 	switch {
 	case !ran:
 		return fmt.Errorf("cannot run %s: %w", strings.Join(t.Words(), " "), err)
 	case strings.Contains(stderr, "flag provided but not defined: -deps"):
 		version := t.Tool
-		cmd := t.At[0].Command(ctx, goroot, t.Words("-version")[:4])
+		cmd := t.At[0].Command(ctx, ctxt, t.Words("-version")[:4])
 		if out, err := cmd.Output(); err == nil {
 			version = strings.TrimSpace(string(out))
 		}
@@ -114,6 +115,9 @@ func whyNot(ctx context.Context, goroot string, t *Task, stderr string, err erro
 			version, getTool(t.Tool))
 	case strings.Contains(stderr, "no such tool"):
 		return fmt.Errorf("%s is not a tool of this module; add it: %s", t.Tool, getTool(t.Tool))
+	case strings.Contains(stderr, "exec format error"):
+		return fmt.Errorf("%s cannot run on this machine: go tool builds it for %s/%s, as it does under go generate; "+
+			"generate with the GOOS and GOARCH of this machine", t.Tool, ctxt.GOOS, ctxt.GOARCH)
 	}
 	return fmt.Errorf("%s -deps: %w: %s", t.Tool, exit, strings.TrimSpace(stderr))
 }
@@ -131,14 +135,14 @@ var mentionsKanna = regexp.MustCompile(`\bkanna-[a-z0-9]+\b|\bgo\s+tool\s+kanna\
 // tasksOf returns the tasks of the directives of m, and what is wrong with
 // those that mean to run a generator in a way kanna gen does not take on. Other
 // lines are none of its business.
-func tasksOf(m *module.Module, goroot string) ([]*Task, []located) {
+func tasksOf(m *module.Module, ctxt build.Context) ([]*Task, []located) {
 	var (
 		tasks    []*Task
 		byLine   = make(map[string]*Task)
 		problems []located
 	)
 	for _, d := range m.Directives {
-		words, err := d.Words(d.Env(goroot))
+		words, err := d.Words(d.Env(ctxt))
 		switch {
 		case err != nil && mentionsKanna.MatchString(d.Text):
 			problems = append(problems, atLine(d, "cannot read this line: %v", err))
