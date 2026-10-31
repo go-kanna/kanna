@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -138,17 +137,17 @@ func gen(ctx context.Context, e env, args []string) int {
 // makePlan plans a run of what patterns, read from dir, select in the module of
 // dir, and returns it with the GOROOT it is to run with.
 func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, string, error) {
-	m, err := module.Find(dir)
+	goroot, tags, err := goEnv(ctx, dir)
+	if err != nil {
+		return nil, "", err
+	}
+	m, err := module.Find(dir, tags...)
 	if err != nil {
 		return nil, "", fmt.Errorf("find the module: %w", err)
 	}
 	selection, err := m.Select(dir, patterns)
 	if err != nil {
 		return nil, "", fmt.Errorf("read the packages: %w", err)
-	}
-	goroot, err := goRoot(ctx)
-	if err != nil {
-		return nil, "", err
 	}
 	p, err := plan.Make(ctx, plan.Config{
 		Module: m, Selection: selection, Patterns: patterns, GOROOT: goroot, Ask: plan.Ask(goroot),
@@ -157,15 +156,6 @@ func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, s
 		return nil, "", fmt.Errorf("plan: %w", err)
 	}
 	return p, goroot, nil
-}
-
-// goRoot returns the GOROOT of the go command, as go generate has it.
-func goRoot(ctx context.Context) (string, error) {
-	out, err := exec.CommandContext(ctx, "go", "env", "GOROOT").Output()
-	if err != nil {
-		return "", fmt.Errorf("run go env GOROOT: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // checkEnv reports whether KANNA_CHECK turns on --check, as it does -check in

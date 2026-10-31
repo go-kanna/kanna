@@ -81,12 +81,13 @@ type Package struct {
 }
 
 // Find returns the module holding dir: the nearest go.mod at dir or above.
-func Find(dir string) (*Module, error) {
+// Tags are the additional build tags of the go command running its generators.
+func Find(dir string, tags ...string) (*Module, error) {
 	for d := dir; ; d = filepath.Dir(d) {
 		data, err := os.ReadFile(filepath.Join(d, "go.mod")) //nolint:gosec // the go.mod the go command would use
 		switch {
 		case err == nil:
-			return load(d, data)
+			return load(d, data, tags)
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err //nolint:wrapcheck // a *fs.PathError, which names the file
 		case filepath.Dir(d) == d:
@@ -95,7 +96,7 @@ func Find(dir string) (*Module, error) {
 	}
 }
 
-func load(dir string, gomod []byte) (*Module, error) {
+func load(dir string, gomod []byte, tags []string) (*Module, error) {
 	name := filepath.Join(dir, "go.mod")
 	f, err := modfile.ParseLax(name, gomod, nil)
 	if err != nil {
@@ -111,7 +112,7 @@ func load(dir string, gomod []byte) (*Module, error) {
 			m.beneath = append(m.beneath, r.Mod.Path)
 		}
 	}
-	r := newReader()
+	r := newReader(tags)
 	err = Walk(dir, func(file string) error { return r.read(m, file) })
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", m.Path, err)
@@ -187,9 +188,10 @@ type foreign struct {
 	handWritten bool
 }
 
-func newReader() *reader {
+func newReader(tags []string) *reader {
 	r := &reader{build: build.Default, generate: build.Default, foreign: make(map[string]*foreign)}
-	r.generate.BuildTags = append(slices.Clip(r.generate.BuildTags), "generate")
+	r.build.BuildTags = append(slices.Clone(r.build.BuildTags), tags...)
+	r.generate.BuildTags = append(slices.Clone(r.build.BuildTags), "generate")
 	return r
 }
 
