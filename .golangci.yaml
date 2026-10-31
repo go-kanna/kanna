@@ -1,0 +1,74 @@
+version: "2"
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+
+linters:
+  default: all
+  settings:
+    dupword:
+      comments-only: true # String literals here are mostly Go source for the generator, where "Email Email" is a field, not a typo.
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    usetesting:
+      context-background: true
+      context-todo: true
+      os-mkdir-temp: true
+      os-setenv: true
+      os-chdir: true
+    tagliatelle:
+      case:
+        rules:
+          json: snake # As the rest of the kanna family spells JSON.
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/go-kanna/value/rule # Its errors are a rule's verdict, returned as they are.
+  enable:
+    - gomodguard_v2
+  disable:
+    - cyclop           # Redundant; cognitive complexity is already tracked by gocognit
+    - depguard         # Import restrictions are not currently required for this internal architecture
+    - dupl             # High false-positive rate in test suites where setup code is similar
+    - err113           # Sentinel errors are used where meaningful; contextual fmt.Errorf is preferred elsewhere
+    - exhaustruct      # Hinders use of default values; too boilerplate-heavy for large structs
+    - exhaustruct_v5   # Same as exhaustruct; v5 variant replaces the deprecated one
+    - funlen           # Testing logic and table-driven tests naturally exceed standard length
+    - gochecknoglobals # Necessary for certain package-level configurations or singleton patterns
+    - gocognit         # Thresholds are often too low for complex but necessary business logic
+    - goconst          # Repeated strings in tests are clearer than abstract constants
+    - godot            # Punctuation in comments is a stylistic choice, not a code quality issue
+    - gomodguard       # Deprecated; use gomodguard_v2 instead
+    - ireturn          # Returning interfaces is a valid design pattern in this project's architecture
+    - mnd              # "Magic numbers" are often self-explanatory (e.g., status codes, time units)
+    - nestif           # Deep nesting is sometimes the most readable way to handle complex logic
+    - nlreturn         # Forcing newlines before returns is purely stylistic and often disruptive
+    - noinlineerr      # Inline error handling (if err := ...; err != nil) is idiomatic Go
+    - nonamedreturns   # Named returns improve documentation and clarity for complex signatures
+    - recvcheck        # Value receivers are preferred when the receiver is not mutated
+    - revive           # Most rules are already covered by more specialized linters
+    - thelper          # Main value (begin check) conflicts with table-driven test closures; remaining checks are trivial
+    - varnamelen       # Short, idiomatic names (i, k, v) are preferred in concise Go code
+    - wsl              # Excessive whitespace enforcement often degrades code density and readability
+    - wsl_v5           # Same as wsl; v5 variant also enforces excessive whitespace rules
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo    # Each table case adds branches, so cyclomatic complexity climbs naturally and isn't a quality signal there.
+          - maintidx   # Same: table-driven tests grow long by design and the maintainability index is not a useful signal there.
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

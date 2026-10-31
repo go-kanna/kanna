@@ -6,6 +6,7 @@ go 1.27.3
 
 use (
 	../../internal
+	../../kanna
 	../../di
 	../../di/example
 	../../fixture
