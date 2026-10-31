@@ -1,0 +1,27 @@
+// The workspace of every go-kanna module checked out beside this repository, as
+// ghq lays them out, for trying a change to one against the others before it
+// is tagged. Point GOWORK at this file to use it; dev/test-all.sh does so for
+// the tests of each repository.
+go 1.27.3
+
+use (
+	../../internal
+	../../di
+	../../di/example
+	../../fixture
+	../../fixture/example
+	../../i18n
+	../../i18n/example
+	../../mapper
+	../../mapper/example
+	../../orm
+	../../orm/bench/postgres
+	../../orm/example/mysql
+	../../orm/example/postgres
+	../../showcase
+	../../validate
+	../../validate/bench
+	../../validate/example
+	../../value
+	../../value/example
+)
