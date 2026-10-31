@@ -61,8 +61,9 @@ func TestDirective_Words(t *testing.T) {
 		t.Run(tt.text, func(t *testing.T) {
 			t.Parallel()
 
-			d.Text = tt.text
-			got, err := d.Words(env)
+			line := d
+			line.Text = tt.text
+			got, err := line.Words(env)
 			if err != nil {
 				t.Fatal(err)
 			}
