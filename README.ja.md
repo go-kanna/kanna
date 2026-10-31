@@ -86,7 +86,7 @@ task は `//go:generate go tool kanna-*` の一行で、`go generate` と同じ�
 
 ## このモジュールの以前のバージョン
 
-`github.com/go-kanna/kanna` は、以前は別のモジュール（kanna v0.2.x と初代の kanna-orm）でした。そのバージョン v0.0.1 から v0.2.0 は Go モジュールプロキシに残り、コードはサイトのリポジトリの [`archive/v0.2`](https://github.com/go-kanna/go-kanna.github.io/tree/archive/v0.2) ブランチにあります。`kanna` コマンドは、それより上の v0.3.0 以降から始まります。
+`github.com/go-kanna/kanna` は、以前は別のモジュール（kanna v0.2.x と初代の kanna-orm）でした。そのバージョン v0.0.1 から v0.2.0 は Go モジュールプロキシに残っていますが、取り下げてあるので `go get` が警告を出します。コードはサイトのリポジトリの [`archive/v0.2`](https://github.com/go-kanna/go-kanna.github.io/tree/archive/v0.2) ブランチにあります。`kanna` コマンドは、それより上の v0.3.0 から始まります。
 
 ## ライセンス
 

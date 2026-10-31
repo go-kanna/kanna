@@ -103,9 +103,9 @@ names are coming, and the last to run finds them there, or reports them.
 ## Earlier versions of this module
 
 `github.com/go-kanna/kanna` used to be another module, kanna v0.2.x with the first kanna-orm. Its versions, v0.0.1 to
-v0.2.0, stay in the Go module proxy, and its code on the
+v0.2.0, stay in the Go module proxy, retracted so that `go get` warns of them, and its code on the
 [`archive/v0.2`](https://github.com/go-kanna/go-kanna.github.io/tree/archive/v0.2) branch of the site's repository. The
-`kanna` command starts above them, at v0.3.0 or later.
+`kanna` command starts above them, at v0.3.0.
 
 ## License
 
