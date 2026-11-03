@@ -199,7 +199,7 @@ func TestMake_OutputsElsewhere(t *testing.T) {
 		"use kanna-validate": {Packages: []string{"use"}, Writes: []string{"use/validate_gen.go"}},
 		"zdi kanna-di": {
 			Packages: []string{"zdi"},
-			Refs:     []deps.Ref{{Package: "pg", Via: "with=pg.New"}},
+			Refs:     []deps.Ref{{Package: modulePath + "/pg", Via: "with=pg.New"}},
 			Writes:   []string{"zdi/di_gen.go"},
 		},
 	})
@@ -368,12 +368,12 @@ func TestMake_ACycleStops(t *testing.T) {
 	p := makePlan(t, dir, answers{
 		"a kanna-di": {
 			Packages: []string{"a"},
-			Refs:     []deps.Ref{{Package: "b", Via: "with=b.New"}},
+			Refs:     []deps.Ref{{Package: modulePath + "/b", Via: "with=b.New"}},
 			Writes:   []string{"a/di_gen.go"},
 		},
 		"b kanna-validate": {
 			Packages: []string{"b"},
-			Refs:     []deps.Ref{{Package: "a", Via: "rule=a.T"}},
+			Refs:     []deps.Ref{{Package: modulePath + "/a", Via: "rule=a.T"}},
 			Writes:   []string{"b/validate_gen.go"},
 		},
 	})
@@ -512,8 +512,8 @@ func TestMake_ModulesUnderItsPath(t *testing.T) {
 	wantOrder(t, makePlan(t, dir, answers{"p kanna-value": {Packages: []string{"p"}}}), "p/p.go:8 kanna-value")
 }
 
-// A name that a package already read answers to means that one, however many
-// others of the module share it.
+// A package a run names and imports too is read through the import, and the
+// other package of the name is none of its business.
 func TestMake_ANameOfAPackageItImports(t *testing.T) {
 	t.Parallel()
 
@@ -526,7 +526,7 @@ func TestMake_ANameOfAPackageItImports(t *testing.T) {
 	p := makePlan(t, dir, answers{
 		"a/use kanna-validate": {
 			Packages: []string{"a/use"},
-			Refs:     []deps.Ref{{Package: "model", Via: "rule=model.T"}},
+			Refs:     []deps.Ref{{Package: modulePath + "/a/model", Via: "rule=model.T"}},
 			Writes:   []string{"a/use/validate_gen.go"},
 		},
 		"b/model kanna-value": {Packages: []string{"b/model"}, Writes: []string{"b/model/value_gen.go"}},
@@ -535,7 +535,8 @@ func TestMake_ANameOfAPackageItImports(t *testing.T) {
 	wantOrder(t, p, "a/use/u.go:5 kanna-validate", "b/model/m.go:5 kanna-value")
 }
 
-// A package holding nothing but output is named by what it will be called.
+// A package holding nothing but output is named by the import path it will
+// have.
 func TestMake_ANameOfAPackageNotThereYet(t *testing.T) {
 	t.Parallel()
 
@@ -547,7 +548,7 @@ func TestMake_ANameOfAPackageNotThereYet(t *testing.T) {
 	p := makePlan(t, dir, answers{
 		"a kanna-di": {
 			Packages: []string{"a"},
-			Refs:     []deps.Ref{{Package: "pg", Via: "with=pg.New"}},
+			Refs:     []deps.Ref{{Package: modulePath + "/infra/pg", Via: "with=pg.New"}},
 			Writes:   []string{"a/di_gen.go"},
 		},
 		"z kanna-orm -destination ../infra/pg": {Packages: []string{"z"}, Writes: []string{"infra/pg/orm_gen.go"}},

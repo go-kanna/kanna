@@ -82,10 +82,6 @@ type graph struct {
 	// writers holds what writes into a package, by import path.
 	writers map[string][]*Task
 
-	// names holds the package name of a package of the module, or of one tasks
-	// are to create, by import path.
-	names map[string]string
-
 	// reads holds what a task reads, by import path.
 	reads map[*Task]map[string]read
 
@@ -107,18 +103,11 @@ func newGraph(m *module.Module, tasks []*Task) (*graph, error) {
 		m:       m,
 		tasks:   tasks,
 		writers: make(map[string][]*Task),
-		names:   make(map[string]string),
 		reads:   make(map[*Task]map[string]read, len(tasks)),
-	}
-	for path, p := range m.Packages {
-		g.names[path] = p.Name
 	}
 	for _, t := range tasks {
 		for _, w := range writtenPackages(m, t) {
 			g.writers[w] = append(g.writers[w], t)
-			if dir, ok := m.DirOf(w); ok && g.names[w] == "" {
-				g.names[w] = filepath.Base(dir)
-			}
 		}
 	}
 	for _, t := range tasks {
@@ -173,12 +162,8 @@ func (g *graph) readsOf(t *Task) map[string]read {
 	}
 	imported := maps.Clone(found)
 	for _, ref := range t.Report.Refs {
-		paths := g.named(ref.Package)
-		if slices.ContainsFunc(paths, func(path string) bool { _, ok := imported[path]; return ok }) {
-			continue // the one it means, however many others share its name
-		}
-		for _, path := range paths {
-			visit(path, read{kind: Names, via: ref.Via})
+		if _, ok := imported[ref.Package]; !ok {
+			visit(ref.Package, read{kind: Names, via: ref.Via})
 		}
 	}
 	if t.Report.Tests {
@@ -191,18 +176,6 @@ func (g *graph) readsOf(t *Task) map[string]read {
 		}
 	}
 	return found
-}
-
-// named returns the packages a Ref's name may be: by import path, by the end of
-// one, or by its name.
-func (g *graph) named(name string) []string {
-	var paths []string
-	for _, path := range slices.Sorted(maps.Keys(g.names)) {
-		if path == name || strings.HasSuffix(path, "/"+name) || g.names[path] == name {
-			paths = append(paths, path)
-		}
-	}
-	return paths
 }
 
 // findContested returns the tasks that both read and write a package, by its
