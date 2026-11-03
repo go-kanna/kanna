@@ -375,6 +375,9 @@ func TestModule_Select(t *testing.T) {
 		{name: "an import path tree", cwd: c, patterns: []string{"example.com/m/a/..."}, want: []string{a, b}},
 		{name: "an absolute path", cwd: dir, patterns: []string{c}, want: []string{c}},
 		{name: "two", cwd: dir, patterns: []string{"./a/b", "./c"}, want: []string{b, c}},
+		{name: "a wildcard within a path", cwd: dir, patterns: []string{"./.../b"}, want: []string{b}},
+		{name: "a wildcard within an import path", cwd: c, patterns: []string{"example.com/m/.../b"}, want: []string{b}},
+		{name: "a wildcard within a name", cwd: dir, patterns: []string{"./a..."}, want: []string{a, b}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -399,7 +402,8 @@ func TestModule_Select_Outside(t *testing.T) {
 	dir := write(t, map[string]string{"a/a.go": "package a\n"})
 	m := find(t, dir)
 
-	for _, pattern := range []string{"../elsewhere", "example.com/other", "fmt", filepath.Dir(dir)} {
+	for _, pattern := range []string{"../elsewhere", "example.com/other", "fmt", filepath.Dir(dir), "../.../a",
+		"example.com/other/.../a"} {
 		if _, err := m.Select(dir, []string{pattern}); err == nil {
 			t.Errorf("Select(%q) reported no error", pattern)
 		}
