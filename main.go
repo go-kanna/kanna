@@ -28,16 +28,16 @@ const exitUsage = 2
 const usage = `kanna runs the kanna code generators of a module, in the order they need.
 
 Usage:
-  kanna gen [--plan | --check] [packages]
+  kanna gen [-plan | -check] [packages]
 
 kanna gen runs each //go:generate go tool kanna-* line once, in an order worked
 out from what each reads and writes. The packages default to ./..., and bring
 along what writes what they read, not what reads them.
 
 Flags of kanna gen:
-  --plan   print what would run, in order and why, and run nothing
-  --check  compare what is on disk with what would be generated, writing nothing;
-           KANNA_CHECK=1 does the same
+  -plan   print what would run, in order and why, and run nothing
+  -check  compare what is on disk with what would be generated, writing nothing;
+          KANNA_CHECK=1 does the same
 `
 
 // env is where a command runs and reports.
@@ -93,7 +93,7 @@ func gen(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n\n%s", err, usage)
 		return exitUsage
 	case *showPlan && *check:
-		fmt.Fprintf(e.stderr, "kanna gen: --plan and --check do not go together\n\n%s", usage)
+		fmt.Fprintf(e.stderr, "kanna gen: -plan and -check do not go together\n\n%s", usage)
 		return exitUsage
 	}
 	for _, pattern := range fs.Args() {
@@ -160,7 +160,7 @@ func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, b
 	return p, ctxt, nil
 }
 
-// checkEnv reports whether KANNA_CHECK turns on --check, as it does -check in
+// checkEnv reports whether KANNA_CHECK turns on -check, as it does -check in
 // every generator. A value that is not a boolean is an error, rather than a run
 // that writes what it was meant to check.
 func checkEnv(getenv func(key string) string) (bool, error) {

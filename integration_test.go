@@ -36,8 +36,8 @@ func TestProject(t *testing.T) {
 	copyTree(t, project, dir)
 
 	// What is committed holds.
-	if got := kanna(t, dir, "gen", "--check"); got.code != 0 {
-		t.Fatalf("--check: %+v", got)
+	if got := kanna(t, dir, "gen", "-check"); got.code != 0 {
+		t.Fatalf("-check: %+v", got)
 	}
 
 	// Generating again changes nothing.

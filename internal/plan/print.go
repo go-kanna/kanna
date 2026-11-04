@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Write prints p as kanna gen --plan shows it: each task with what it runs,
+// Write prints p as kanna gen -plan shows it: each task with what it runs,
 // what it writes, and why it comes where it does.
 func (p *Plan) Write(w io.Writer) {
 	number := make(map[*Task]int, len(p.Tasks))
