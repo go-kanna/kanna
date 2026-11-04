@@ -62,7 +62,7 @@ func TestGen_SavedBuildEnvironment(t *testing.T) {
 		"a/a.go": "//go:build !cgo\n\npackage a\n\n//go:generate go tool kanna-fake -out a_gen.go\n",
 	})
 
-	got := kanna(t, dir, "gen", "--plan")
+	got := kanna(t, dir, "gen", "-plan")
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
 	}
@@ -85,7 +85,7 @@ func TestGen_SavedTargetOfAnotherMachine(t *testing.T) {
 		file:       "package a\n\n//go:generate go tool kanna-fake -out a_gen.go\n",
 	})
 
-	got := kanna(t, dir, "gen", "--check")
+	got := kanna(t, dir, "gen", "-check")
 	if got.code != 1 {
 		t.Fatalf("%+v", got)
 	}
@@ -101,13 +101,13 @@ func TestGen_GOFLAGSBuildTags(t *testing.T) {
 		"b/b.go":      "//go:build kannatest\n\npackage b\n\n//go:generate go tool kanna-fake -out b_gen.go\n",
 	})
 
-	got := kanna(t, dir, "gen", "--plan", "./a")
+	got := kanna(t, dir, "gen", "-plan", "./a")
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
 	}
 	contains(t, got.stdout, "1. b/b.go:5", "2. a/a.go:3", "reads b, which kanna-fake writes into")
 
-	got = kanna(t, dir, "gen", "--check", "./b")
+	got = kanna(t, dir, "gen", "-check", "./b")
 	if got.code != 1 {
 		t.Fatalf("%+v", got)
 	}

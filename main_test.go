@@ -315,7 +315,7 @@ func TestGen_TellsARunWhatIsComing(t *testing.T) {
 			"var _, _ = F(), G()\n",
 	})
 
-	got := kanna(t, dir, "gen", "--plan")
+	got := kanna(t, dir, "gen", "-plan")
 
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
@@ -337,7 +337,7 @@ func TestGen_Plan(t *testing.T) {
 	dir := project(t, chain(""))
 	before := tree(t, dir)
 
-	got := kanna(t, dir, "gen", "--plan")
+	got := kanna(t, dir, "gen", "-plan")
 
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
@@ -360,7 +360,7 @@ func TestGen_PlanShowsACycleWithAnOutsideDependency(t *testing.T) {
 	})
 	before := tree(t, dir)
 
-	got := kanna(t, dir, "gen", "--plan")
+	got := kanna(t, dir, "gen", "-plan")
 
 	if got.code != 1 {
 		t.Fatalf("%+v", got)
@@ -377,10 +377,14 @@ func TestGen_Check(t *testing.T) {
 	kanna(t, dir, "gen")
 	before := tree(t, dir)
 
-	got := kanna(t, dir, "gen", "--check")
+	got := kanna(t, dir, "gen", "-check")
 
 	if got != (outcome{stdout: "3 tasks up to date\n"}) {
 		t.Errorf("%+v", got)
+	}
+	// Two dashes still work, as for any flag of the flag package.
+	if got := kanna(t, dir, "gen", "--check"); got != (outcome{stdout: "3 tasks up to date\n"}) {
+		t.Errorf("--check: %+v", got)
 	}
 	sameTree(t, tree(t, dir), before)
 }
@@ -401,7 +405,7 @@ func TestGen_CheckFindsADifference(t *testing.T) {
 	}
 	before := tree(t, dir)
 
-	got := kanna(t, dir, "gen", "--check")
+	got := kanna(t, dir, "gen", "-check")
 
 	if got.code != 1 {
 		t.Fatalf("%+v", got)
@@ -453,7 +457,7 @@ func TestGen_RejectsDepsFlagBeforeRunningATool(t *testing.T) {
 	t.Parallel()
 
 	for _, arg := range []string{"-deps", "-deps=true", "-deps=false", "--deps", "--deps=true", "--deps=false"} {
-		for _, mode := range []string{"--plan", "--check"} {
+		for _, mode := range []string{"-plan", "-check"} {
 			t.Run(arg+"/"+mode, func(t *testing.T) {
 				t.Parallel()
 
@@ -491,9 +495,9 @@ func TestGen_ProblemsStopBeforeAnythingRuns(t *testing.T) {
 		t.Error("a task ran")
 	}
 
-	got = kanna(t, dir, "gen", "--plan")
+	got = kanna(t, dir, "gen", "-plan")
 	if got.code != 1 {
-		t.Errorf("--plan = %+v", got)
+		t.Errorf("-plan = %+v", got)
 	}
 	contains(t, got.stdout, "1. c/c.go:3")
 	contains(t, got.stderr, "d/d.go:3")
@@ -581,7 +585,7 @@ func TestGen_ThroughALink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := kanna(t, filepath.Join(link, "a"), "gen", "--plan", ".")
+	got := kanna(t, filepath.Join(link, "a"), "gen", "-plan", ".")
 
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
@@ -630,9 +634,9 @@ func TestCommand_Usage(t *testing.T) {
 		{args: []string{"help"}, says: "Usage:"},
 		{args: []string{"gen", "-h"}, says: "Usage:"},
 		{args: []string{"nonsense"}, code: exitUsage, says: `unknown command "nonsense"`},
-		{args: []string{"gen", "--plan", "--check"}, code: exitUsage, says: "--plan and --check do not go together"},
+		{args: []string{"gen", "-plan", "-check"}, code: exitUsage, says: "-plan and -check do not go together"},
 		{args: []string{"gen", "--nonsense"}, code: exitUsage, says: "-nonsense"},
-		{args: []string{"gen", "./a", "--plan"}, code: exitUsage, says: "flags go before the packages"},
+		{args: []string{"gen", "./a", "-plan"}, code: exitUsage, says: "flags go before the packages"},
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
