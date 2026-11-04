@@ -33,12 +33,15 @@ tasks before it wrote stays:
 ```text
 completed    internal/feature/todo/model/todo_model.go:15    kanna-value   wrote internal/feature/todo/model/value_gen.go
 failed       internal/feature/todo/mapper/todo_mapper.go:10  kanna-mapper
-  ./todo_mapper.go:32:13: error: cannot use "x" (untyped string constant) as int value in variable declaration
+  internal/feature/todo/mapper/todo_mapper.go:32:13: error: cannot use "x" (untyped string constant) as int value in …
 not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
 
 1 completed, 1 failed, 1 not run
 1 file changed; completed changes remain in the working tree
 ```
+
+What a generator says goes to stderr, below its task, and the report to stdout. Its paths lead from where `kanna gen`
+runs, as the go command's do, rather than from the package the generator runs in.
 
 Packages narrow it down, as for the go command. `./...` is the default. The packages bring along what writes what they
 read, and not what reads them.

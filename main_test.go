@@ -267,7 +267,8 @@ func TestGen_ShowsWhatAGeneratorSays(t *testing.T) {
 
 	got := kanna(t, dir, "gen")
 
-	contains(t, got.stdout, "unchanged\n  warning: nothing is marked\n", "3 tasks, 0 files changed\n")
+	contains(t, got.stdout, "unchanged\n", "3 tasks, 0 files changed\n")
+	contains(t, got.stderr, "  warning: nothing is marked\n")
 }
 
 // The second task fails: what the report says is what is in the tree.
@@ -283,12 +284,15 @@ func TestGen_StopsAtTheFirstFailure(t *testing.T) {
 	}
 	want := "completed    c/c.go:3  kanna-fake  wrote c/c_gen.go\n" +
 		"failed       b/b.go:5  kanna-fake  wrote b/half_gen.go\n" +
-		"  ./a.go:1:1: error: it cannot be done\n" +
 		"not run      a/a.go:5  kanna-fake\n" +
 		"\n1 completed, 1 failed, 1 not run\n" +
 		"2 files changed; completed changes remain in the working tree\n"
 	if got.stdout != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", got.stdout, want)
+	}
+	// What the generator says goes to stderr, apart from the report.
+	if want := "  ./a.go:1:1: error: it cannot be done\n"; got.stderr != want {
+		t.Errorf("stderr = %q, want %q", got.stderr, want)
 	}
 	if !exists(filepath.Join(dir, "c", "c_gen.go")) || !exists(filepath.Join(dir, "b", "half_gen.go")) {
 		t.Error("what completed is not in the tree")
@@ -323,8 +327,8 @@ func TestGen_TellsARunWhatIsComing(t *testing.T) {
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
 	}
-	contains(t, got.stdout, "wrote m/f_gen.go\n  pending: example.com/m/m.G\n",
-		"wrote m/g_gen.go\n2 tasks, 2 files changed\n")
+	contains(t, got.stdout, "wrote m/f_gen.go\n", "wrote m/g_gen.go\n2 tasks, 2 files changed\n")
+	contains(t, got.stderr, "  pending: example.com/m/m.G\n")
 }
 
 func TestGen_Plan(t *testing.T) {
@@ -404,10 +408,11 @@ func TestGen_CheckFindsADifference(t *testing.T) {
 	}
 	contains(t, flat(got.stdout),
 		"up to date c/c.go:3 kanna-fake\n",
-		"failed b/b.go:5 kanna-fake\n ./b_gen.go: error: out of date; run go generate\n",
+		"failed b/b.go:5 kanna-fake\n",
 		"not checked a/a.go:5 kanna-fake\n",
 		"up to date z/z.go:3 kanna-fake\n",
 		"2 up to date, 1 failed, 1 not checked\n")
+	contains(t, got.stderr, "./b_gen.go: error: out of date; run go generate\n")
 	sameTree(t, tree(t, dir), before)
 }
 
