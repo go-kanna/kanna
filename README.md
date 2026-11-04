@@ -91,6 +91,14 @@ there, or a line that means to run a generator some other way: a `-command` alia
 `kanna-orm describe`. Other generators' lines it leaves alone, so what buf or sqlc write has to be there first, and is
 theirs to check.
 
+It warns about a `//kanna:` line whose key no generator of the family has, such as `//kanna:di` for `//kanna:container`,
+which each generator passes over and none can tell for the others. A line of a generator's own key it leaves to that
+generator, which warns about one no declaration holds and about a typo of its key:
+
+```text
+internal/feature/todo/handler/todo_handler.go:14:1: warning: //kanna:di is a directive of no kanna generator
+```
+
 ## How the order is worked out
 
 Each generator answers `-deps` with what a run reads and writes, and the module's hand-written files say what imports

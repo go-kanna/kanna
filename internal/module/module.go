@@ -8,6 +8,7 @@
 package module
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-kanna/internal/directive"
 	"github.com/go-kanna/internal/output"
 	"golang.org/x/mod/modfile"
 
@@ -78,6 +80,10 @@ type Package struct {
 	// kanna's, as for a package buf generates, or holds "something" for a
 	// marker that does not say.
 	Foreign []string
+
+	// Lines holds the //kanna: lines of its files, as directive.Lines has
+	// them, for saying which no generator reads.
+	Lines []directive.Line
 }
 
 // Find returns the module holding dir: the nearest go.mod at dir or above. Its
@@ -239,6 +245,12 @@ func (r *reader) read(m *Module, file string) error {
 	}
 	if !inBuild && !inGenerate {
 		return nil
+	}
+	if bytes.Contains(src, []byte("//kanna:")) {
+		fset := token.NewFileSet()
+		if full, _ := parser.ParseFile(fset, file, src, parser.ParseComments); full != nil {
+			p.Lines = append(p.Lines, directive.Lines(fset, []*ast.File{full})...)
+		}
 	}
 	if !strings.HasSuffix(name, "_test.go") {
 		if pkgName != "" && (p.Name == "" || inBuild) {

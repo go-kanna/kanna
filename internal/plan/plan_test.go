@@ -387,6 +387,34 @@ func TestMake_ACycleStops(t *testing.T) {
 }
 
 // The same line twice is the one run, as it would make no difference twice.
+// A //kanna: line whose key no generator has is passed over by each of them,
+// so the plan says so, for the packages it selects. One a typo away from a
+// key, on a declaration, is left to the generator of that key.
+func TestMake_WarnsOfAKeyNoGeneratorHas(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{
+		"p/a.go": "package p\n\n//go:generate go tool kanna-validate\n\n//kanna:di\ntype Server struct{}\n\n" +
+			"//kanna:validte\ntype Form struct{}\n",
+		"q/q.go": "package q\n\n//kanna:di\ntype Other struct{}\n",
+	})
+
+	p := makePlan(t, dir, answers{"p kanna-validate": {Packages: []string{"p"}, Writes: []string{"p/validate_gen.go"}}},
+		"./p")
+
+	got := make([]string, len(p.Warnings))
+	for i, d := range p.Warnings {
+		got[i] = d.String()
+	}
+	want := []string{filepath.Join(dir, "p", "a.go") + ":5:1: warning: //kanna:di is a directive of no kanna generator"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Warnings = %q, want %q", got, want)
+	}
+	if len(p.Problems) > 0 {
+		t.Errorf("Problems = %v, want none", p.Problems)
+	}
+}
+
 func TestMake_TheSameLineTwice(t *testing.T) {
 	t.Parallel()
 

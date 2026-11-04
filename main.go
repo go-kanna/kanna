@@ -125,6 +125,7 @@ func gen(ctx context.Context, e env, args []string) int {
 	if *showPlan {
 		p.Write(e.stdout)
 	}
+	diag.Write(e.stderr, dir, p.Warnings)
 	if len(p.Problems) > 0 {
 		diag.Write(e.stderr, dir, p.Problems)
 		return run.ExitFailure
