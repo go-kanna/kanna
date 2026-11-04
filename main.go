@@ -133,7 +133,7 @@ func gen(ctx context.Context, e env, args []string) int {
 	if *showPlan {
 		return run.ExitOK
 	}
-	return run.Run(ctx, p, run.Config{Build: ctxt, Check: *check || byEnv, Out: e.stdout})
+	return run.Run(ctx, p, run.Config{Build: ctxt, Check: *check || byEnv, Out: e.stdout, Err: e.stderr, Dir: dir})
 }
 
 // makePlan plans a run of what patterns, read from dir, select in the module of

@@ -38,8 +38,13 @@ type Config struct {
 	// nothing.
 	Check bool
 
-	// Out receives the report.
-	Out io.Writer
+	// Out receives the report, and Err what the generators print, below the
+	// task that printed it.
+	Out, Err io.Writer
+
+	// Dir is where kanna gen runs, which the generators write the paths of
+	// what they report from.
+	Dir string
 }
 
 // state is how a task ended up.
@@ -90,10 +95,10 @@ func Run(ctx context.Context, p *plan.Plan, cfg Config) int {
 	}
 
 	if stopped {
-		reportFailure(cfg.Out, p.Module, results)
+		reportFailure(cfg, p.Module, results)
 		return ExitFailure
 	}
-	reportSuccess(cfg.Out, p.Module, results)
+	reportSuccess(cfg, p.Module, results)
 	return ExitOK
 }
 
@@ -119,7 +124,7 @@ func check(ctx context.Context, p *plan.Plan, cfg Config) int {
 	}
 
 	if len(bad) > 0 {
-		reportCheckFailure(cfg.Out, p.Module, results)
+		reportCheckFailure(cfg, p.Module, results)
 		return ExitFailure
 	}
 	fmt.Fprintf(cfg.Out, "%s up to date\n", count(len(p.Tasks), "task"))
@@ -150,7 +155,7 @@ func runTask(ctx context.Context, t *plan.Task, cfg Config) (string, error) {
 	if cfg.Check {
 		checkValue = "1"
 	}
-	cmd.Env = append(cmd.Env, deps.PendingEnv+"="+pending, "KANNA_CHECK="+checkValue)
+	cmd.Env = append(cmd.Env, deps.PendingEnv+"="+pending, "KANNA_CHECK="+checkValue, deps.DirEnv+"="+cfg.Dir)
 
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -211,7 +216,7 @@ func diff(m *module.Module, before, after map[string]fs.FileInfo) []change {
 
 // reportSuccess reports a run that went through, in one line when there is
 // nothing to tell.
-func reportSuccess(w io.Writer, m *module.Module, results []result) {
+func reportSuccess(cfg Config, m *module.Module, results []result) {
 	changed := changedFiles(results)
 	quiet := changed == 0 && !slices.ContainsFunc(results, func(r result) bool {
 		return strings.TrimSpace(r.output) != ""
@@ -219,18 +224,19 @@ func reportSuccess(w io.Writer, m *module.Module, results []result) {
 	if !quiet {
 		rows := newTable(m, results)
 		for _, r := range results {
-			rows.write(w, "", r)
+			rows.write(cfg, "", r)
 		}
 	}
-	fmt.Fprintf(w, "%s, %s changed\n", count(len(results), "task"), count(changed, "file"))
+	fmt.Fprintf(cfg.Out, "%s, %s changed\n", count(len(results), "task"), count(changed, "file"))
 }
 
 // reportFailure reports a run that a task stopped.
-func reportFailure(w io.Writer, m *module.Module, results []result) {
+func reportFailure(cfg Config, m *module.Module, results []result) {
+	w := cfg.Out
 	rows := newTable(m, results)
 	counts := make(map[state]int)
 	for _, r := range results {
-		rows.write(w, []string{done: "completed", failed: "failed", skipped: "not run"}[r.state], r)
+		rows.write(cfg, []string{done: "completed", failed: "failed", skipped: "not run"}[r.state], r)
 		counts[r.state]++
 	}
 	fmt.Fprintf(w, "\n%d completed, %d failed, %d not run\n", counts[done], counts[failed], counts[skipped])
@@ -246,14 +252,14 @@ func reportFailure(w io.Writer, m *module.Module, results []result) {
 }
 
 // reportCheckFailure reports a check that did not come out clean.
-func reportCheckFailure(w io.Writer, m *module.Module, results []result) {
+func reportCheckFailure(cfg Config, m *module.Module, results []result) {
 	rows := newTable(m, results)
 	counts := make(map[state]int)
 	for _, r := range results {
-		rows.write(w, []string{done: "up to date", failed: "failed", skipped: "not checked"}[r.state], r)
+		rows.write(cfg, []string{done: "up to date", failed: "failed", skipped: "not checked"}[r.state], r)
 		counts[r.state]++
 	}
-	fmt.Fprintf(w, "\n%d up to date, %d failed, %d not checked\n", counts[done], counts[failed], counts[skipped])
+	fmt.Fprintf(cfg.Out, "\n%d up to date, %d failed, %d not checked\n", counts[done], counts[failed], counts[skipped])
 }
 
 func changedFiles(results []result) int {
@@ -293,9 +299,11 @@ func (tb table) placeOf(t *plan.Task) string {
 	return fmt.Sprintf("%s:%d", tb.m.Rel(t.At[0].File), t.At[0].Line)
 }
 
-// write writes the lines of r, starting with its label. A run that went through
-// has no labels, and is indented in place of them.
-func (tb table) write(w io.Writer, label string, r result) {
+// write writes the lines of r, starting with its label, to the report, and
+// what its generator printed to cfg.Err, indented below it. A run that went
+// through has no labels, and is indented in place of them.
+func (tb table) write(cfg Config, label string, r result) {
+	w := cfg.Out
 	start := "  "
 	if label != "" {
 		start = fmt.Sprintf("%-*s  ", tb.state, label)
@@ -318,9 +326,9 @@ func (tb table) write(w io.Writer, label string, r result) {
 		}
 	}
 	for line := range strings.Lines(strings.TrimSpace(r.output)) {
-		fmt.Fprintf(w, "  %s", line)
+		fmt.Fprintf(cfg.Err, "  %s", line)
 		if !strings.HasSuffix(line, "\n") {
-			fmt.Fprintln(w)
+			fmt.Fprintln(cfg.Err)
 		}
 	}
 }

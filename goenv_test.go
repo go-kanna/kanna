@@ -111,5 +111,6 @@ func TestGen_GOFLAGSBuildTags(t *testing.T) {
 	if got.code != 1 {
 		t.Fatalf("%+v", got)
 	}
-	contains(t, got.stdout, "b/b.go:5", "out of date")
+	contains(t, got.stdout, "b/b.go:5")
+	contains(t, got.stderr, "out of date")
 }
