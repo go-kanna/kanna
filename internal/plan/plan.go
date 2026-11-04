@@ -131,7 +131,7 @@ func Make(ctx context.Context, cfg Config) (*Plan, error) {
 // twice warns about each line of t after its first, the same line in the same
 // package, which go generate runs again for nothing and kanna gen runs once.
 func twice(m *module.Module, t *Task) []diag.Diag {
-	var ds []diag.Diag
+	ds := make([]diag.Diag, 0, len(t.At)-1)
 	for _, d := range t.At[1:] {
 		ds = append(ds, diag.Warningf(positionOf(d), "//go:generate %s is in %s:%d already, and runs once for the package",
 			d.Text, m.Rel(t.At[0].File), t.At[0].Line).WithHints("remove one of them"))
