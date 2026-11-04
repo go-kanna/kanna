@@ -45,7 +45,8 @@ type Plan struct {
 
 	// Warnings says what is likely a mistake but keeps nothing from running:
 	// a //kanna: line whose key no generator has, which each of them passes
-	// over, and which no one of them can tell for the others.
+	// over, and which no one of them can tell for the others, and a
+	// //go:generate line given twice in a package, which runs once.
 	Warnings []diag.Diag
 }
 
@@ -116,12 +117,26 @@ func Make(ctx context.Context, cfg Config) (*Plan, error) {
 		p.Problems = append(p.Problems, cycleDiag(m, cycle))
 	}
 	g.markLoose(chosen)
+	for _, t := range p.Tasks {
+		p.Warnings = append(p.Warnings, twice(m, t)...)
+	}
 	for _, path := range slices.Sorted(maps.Keys(m.Packages)) {
 		if pkg := m.Packages[path]; cfg.Selection.Matches(pkg.Dir) {
 			p.Warnings = append(p.Warnings, directive.Unknown(pkg.Lines)...)
 		}
 	}
 	return p, nil
+}
+
+// twice warns about each line of t after its first, the same line in the same
+// package, which go generate runs again for nothing and kanna gen runs once.
+func twice(m *module.Module, t *Task) []diag.Diag {
+	ds := make([]diag.Diag, 0, len(t.At)-1)
+	for _, d := range t.At[1:] {
+		ds = append(ds, diag.Warningf(positionOf(d), "//go:generate %s is in %s:%d already, and runs once for the package",
+			d.Text, m.Rel(t.At[0].File), t.At[0].Line).WithHints("remove one of them"))
+	}
+	return ds
 }
 
 func byPosition(a, b diag.Diag) int {

@@ -87,7 +87,7 @@ change through the tasks `--check` could not check. `git add -AN` has `git diff`
 
 A task is one `//go:generate go tool kanna-*` line, run as `go generate` runs it: in its package's directory, with
 `GOFILE` and the rest, and with the line's quotes and `$` variables read the same way. The same line twice in a package
-runs once.
+runs once, with a warning at each line after the first, which `go generate` would run again for nothing.
 
 Before starting, it refuses a plan with tasks waiting for each other, two tasks writing one file, an input that is not
 there, or a line that means to run a generator some other way: a `-command` alias, a shell, another executable, or

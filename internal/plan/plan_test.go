@@ -429,6 +429,11 @@ func TestMake_TheSameLineTwice(t *testing.T) {
 	if got := written(p); !strings.Contains(got, "also:   p/b.go:3") {
 		t.Errorf("Write() =\n%s", got)
 	}
+	want := filepath.Join(dir, "p", "b.go") + ":3: warning: //go:generate go tool kanna-validate is in p/a.go:3 " +
+		"already, and runs once for the package\n  remove one of them"
+	if len(p.Warnings) != 1 || p.Warnings[0].String() != want {
+		t.Errorf("Warnings = %v, want %q", p.Warnings, want)
+	}
 }
 
 // One tool twice over with other flags is two runs, of different output.
