@@ -66,7 +66,7 @@ func TestProject(t *testing.T) {
 
 	// A mistake in code written by hand stays one, with output set aside or not.
 	breakHandwritten(t, dir)
-	if got := kanna(t, dir, "gen"); got.code != 1 || !strings.Contains(got.stdout, "not an int") {
+	if got := kanna(t, dir, "gen"); got.code != 1 || !strings.Contains(got.stderr, "not an int") {
 		t.Errorf("run on a type error: %+v", got)
 	}
 }
