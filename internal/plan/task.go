@@ -168,13 +168,23 @@ func tasksOf(m *module.Module, ctxt build.Context) ([]*Task, []located) {
 	return tasks, problems
 }
 
-// isGeneration reports whether words are the normal run of a generator. A
-// subcommand of kanna-orm talks to a database, which kanna gen does not do.
+// isGeneration reports whether words are the normal run of a generator. Two
+// subcommands are not: kanna-orm describe talks to a database, and the vet of a
+// generator checks code and writes nothing, neither of which kanna gen does.
 func isGeneration(words []string) bool {
 	if len(words) < 3 || words[0] != "go" || words[1] != "tool" || !strings.HasPrefix(words[2], "kanna-") {
 		return false
 	}
-	return words[2] != "kanna-orm" || len(words) == 3 || words[3] != "describe"
+	if len(words) == 3 {
+		return true
+	}
+	switch words[3] {
+	case "vet":
+		return false
+	case "describe":
+		return words[2] != "kanna-orm"
+	}
+	return true
 }
 
 // located is a problem at a directive.
@@ -190,7 +200,7 @@ func atLine(d generate.Directive, format string, args ...any) located {
 func unsupported(d generate.Directive) located {
 	l := atLine(d, "kanna gen does not run this line: %s", d.Text)
 	l.diag = l.diag.WithHints("it runs //go:generate go tool kanna-* lines, and leaves out a -command alias, " +
-		"a shell, another executable, and kanna-orm describe")
+		"a shell, another executable, kanna-orm describe, and the vet of a generator")
 	return l
 }
 
