@@ -505,22 +505,25 @@ func TestMake_ExternalPackages(t *testing.T) {
 func TestMake_LinesItDoesNotRun(t *testing.T) {
 	t.Parallel()
 
-	for _, line := range []string{
-		"kanna-value",
-		"go run github.com/go-kanna/value/cmd/kanna-value",
-		"sh -c \"go tool kanna-value\"",
-		"-command value go tool kanna-value",
-		"go tool kanna-orm describe -database-url x",
-		"go tool kanna gen",
-		"go tool -n kanna-value",
-		"kanna-value \"oops",
+	const notRun, unread = "p/p.go:3: error: kanna gen does not run this line", "p/p.go:3: error: cannot read this line"
+	for _, tt := range []struct{ line, want string }{
+		{"kanna-value", notRun},
+		{"go run github.com/go-kanna/value/cmd/kanna-value", notRun},
+		{"sh -c \"go tool kanna-value\"", notRun},
+		{"-command value go tool kanna-value", notRun},
+		{"go tool kanna-orm describe -database-url x", notRun},
+		{"go tool kanna-orm vet ./...", notRun},
+		{"go tool kanna-value vet", notRun},
+		{"go tool kanna gen", notRun},
+		{"go tool -n kanna-value", notRun},
+		{"kanna-value \"oops", unread},
 	} {
-		t.Run(line, func(t *testing.T) {
+		t.Run(tt.line, func(t *testing.T) {
 			t.Parallel()
 
-			dir := write(t, map[string]string{"p/p.go": "package p\n\n//go:generate " + line + "\n"})
+			dir := write(t, map[string]string{"p/p.go": "package p\n\n//go:generate " + tt.line + "\n"})
 
-			wantProblem(t, makePlan(t, dir, answers{}), "p/p.go:3")
+			wantProblem(t, makePlan(t, dir, answers{}), tt.want)
 		})
 	}
 }
