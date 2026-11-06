@@ -112,9 +112,9 @@ func whyNot(ctx context.Context, ctxt build.Context, t *Task, stderr string, err
 			version = strings.TrimSpace(string(out))
 		}
 		return fmt.Errorf("%s is too old to tell kanna gen what it reads and writes; update it: %s",
-			version, getTool(t.Tool))
+			version, GetTool(t.Tool))
 	case strings.Contains(stderr, "no such tool"):
-		return fmt.Errorf("%s is not a tool of this module; add it: %s", t.Tool, getTool(t.Tool))
+		return fmt.Errorf("%s is not a tool of this module; add it: %s", t.Tool, GetTool(t.Tool))
 	case strings.Contains(stderr, "exec format error"):
 		return fmt.Errorf("%s cannot run on this machine: go tool builds it for %s/%s, as it does under go generate; "+
 			"generate with the GOOS and GOARCH of this machine", t.Tool, ctxt.GOOS, ctxt.GOARCH)
@@ -122,8 +122,8 @@ func whyNot(ctx context.Context, ctxt build.Context, t *Task, stderr string, err
 	return fmt.Errorf("%s -deps: %w: %s", t.Tool, exit, strings.TrimSpace(stderr))
 }
 
-// getTool returns the command that adds tool to a module.
-func getTool(tool string) string {
+// GetTool returns the command that adds tool to a module.
+func GetTool(tool string) string {
 	family := strings.TrimPrefix(tool, "kanna-")
 	return "go get -tool github.com/go-kanna/" + family + "/cmd/" + tool + "@latest"
 }

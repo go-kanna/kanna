@@ -637,6 +637,9 @@ func TestCommand_Usage(t *testing.T) {
 		{args: []string{"gen", "-plan", "-check"}, code: exitUsage, says: "-plan and -check do not go together"},
 		{args: []string{"gen", "--nonsense"}, code: exitUsage, says: "-nonsense"},
 		{args: []string{"gen", "./a", "-plan"}, code: exitUsage, says: "flags go before the packages"},
+		{args: []string{"vet", "-h"}, says: "kanna vet [-tags list] [packages]"},
+		{args: []string{"vet", "--nonsense"}, code: exitUsage, says: "-nonsense"},
+		{args: []string{"vet", "./a", "-tags", "x"}, code: exitUsage, says: "flags go before the packages"},
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {

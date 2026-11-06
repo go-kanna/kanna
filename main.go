@@ -1,5 +1,6 @@
 // Command kanna runs the kanna code generators of a module, each //go:generate
-// go tool kanna-* line once, in the order what they write and read asks for.
+// go tool kanna-* line once, in the order what they write and read asks for,
+// and the vets of those that have one.
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"go/build"
+	"go/token"
 	"io"
 	"os"
 	"os/signal"
@@ -20,15 +22,18 @@ import (
 	"github.com/go-kanna/kanna/internal/module"
 	"github.com/go-kanna/kanna/internal/plan"
 	"github.com/go-kanna/kanna/internal/run"
+	"github.com/go-kanna/kanna/internal/vet"
 )
 
 // exitUsage is the code to exit with when the command line itself is wrong.
 const exitUsage = 2
 
-const usage = `kanna runs the kanna code generators of a module, in the order they need.
+const usage = `kanna runs the kanna code generators of a module, in the order they need,
+and their vets.
 
 Usage:
   kanna gen [-plan | -check] [packages]
+  kanna vet [-tags list] [packages]
 
 kanna gen runs each //go:generate go tool kanna-* line once, in an order worked
 out from what each reads and writes. The packages default to ./..., and bring
@@ -38,6 +43,15 @@ Flags of kanna gen:
   -plan   print what would run, in order and why, and run nothing
   -check  compare what is on disk with what would be generated, writing nothing;
           KANNA_CHECK=1 does the same
+
+kanna vet runs the vet of each generator the module runs that has one, which
+checks the code calling what the generator writes. The packages default to
+./..., and the vets read what is generated as it is on disk, which kanna gen
+-check tells is up to date.
+
+Flags of kanna vet:
+  -tags   load the packages with the comma-separated build tags, as the go
+          command does
 `
 
 // env is where a command runs and reports.
@@ -68,6 +82,8 @@ func command(ctx context.Context, e env, args []string) int {
 	switch args[0] {
 	case "gen":
 		return gen(ctx, e, args[1:])
+	case "vet":
+		return vetCommand(ctx, e, args[1:])
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(e.stdout, usage)
 		return run.ExitOK
@@ -96,11 +112,9 @@ func gen(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna gen: -plan and -check do not go together\n\n%s", usage)
 		return exitUsage
 	}
-	for _, pattern := range fs.Args() {
-		if strings.HasPrefix(pattern, "-") {
-			fmt.Fprintf(e.stderr, "kanna gen: flags go before the packages: %s\n\n%s", pattern, usage)
-			return exitUsage
-		}
+	if pattern, ok := flagAmong(fs.Args()); ok {
+		fmt.Fprintf(e.stderr, "kanna gen: flags go before the packages: %s\n\n%s", pattern, usage)
+		return exitUsage
 	}
 
 	byEnv, err := checkEnv(e.getenv)
@@ -134,6 +148,76 @@ func gen(ctx context.Context, e env, args []string) int {
 		return run.ExitOK
 	}
 	return run.Run(ctx, p, run.Config{Build: ctxt, Check: *check || byEnv, Out: e.stdout, Err: e.stderr, Dir: dir})
+}
+
+// vetCommand runs kanna vet with args.
+func vetCommand(ctx context.Context, e env, args []string) int {
+	fs := flag.NewFlagSet("kanna vet", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
+	tags := fs.String("tags", "", "")
+
+	err := fs.Parse(args)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(e.stdout, usage)
+		return run.ExitOK
+	case err != nil:
+		fmt.Fprintf(e.stderr, "kanna vet: %v\n\n%s", err, usage)
+		return exitUsage
+	}
+	if pattern, ok := flagAmong(fs.Args()); ok {
+		fmt.Fprintf(e.stderr, "kanna vet: flags go before the packages: %s\n\n%s", pattern, usage)
+		return exitUsage
+	}
+
+	dir, err := filepath.EvalSymlinks(e.dir)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "kanna vet: %v\n", err)
+		return run.ExitFailure
+	}
+	ctxt, err := goContext(ctx, dir)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "kanna vet: %v\n", err)
+		return run.ExitFailure
+	}
+	m, err := module.Find(dir, ctxt)
+	if err != nil {
+		fmt.Fprintf(e.stderr, "kanna vet: find the module: %v\n", err)
+		return run.ExitFailure
+	}
+
+	vets := vet.Of(m, ctxt)
+	if len(vets) == 0 {
+		d := diag.Warningf(token.Position{}, "none of the generators the module runs has a vet").
+			WithHints("those with one are " + strings.Join(vet.Tools, ", "))
+		diag.Write(e.stderr, dir, []diag.Diag{d})
+		return run.ExitOK
+	}
+	if ds := vet.Check(ctx, dir, vets); len(ds) > 0 {
+		diag.Write(e.stderr, dir, ds)
+		return run.ExitFailure
+	}
+
+	patterns := fs.Args()
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
+	}
+	if !vet.Run(ctx, vet.Config{Dir: dir, Tags: *tags, Patterns: patterns, Out: e.stderr}, vets) {
+		return run.ExitFailure
+	}
+	return run.ExitOK
+}
+
+// flagAmong returns the first of patterns that is a flag, which the flag
+// package leaves there when it comes after a package.
+func flagAmong(patterns []string) (string, bool) {
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, "-") {
+			return pattern, true
+		}
+	}
+	return "", false
 }
 
 // makePlan plans a run of what patterns, read from dir, select in the module of
