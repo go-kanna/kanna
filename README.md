@@ -5,8 +5,9 @@
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-blue.svg)](README.ja.md)
 
 The `kanna` command runs the [kanna](https://go-kanna.github.io/) family of Go code generators in the order they need,
-so that a project keeps no list of packages for it. It adds no configuration: what it runs is the
-`//go:generate go tool kanna-*` lines already there, and each generator goes on working without it.
+so that a project keeps no list of packages for it, and their vets, so that it keeps no list of those either. It adds
+no configuration: what it runs is the `//go:generate go tool kanna-*` lines already there, and each generator goes on
+working without it.
 
 ## Install
 
@@ -91,7 +92,8 @@ runs once, with a warning at each line after the first, which `go generate` woul
 
 Before starting, it refuses a plan with tasks waiting for each other, two tasks writing one file, an input that is not
 there, or a line that means to run a generator some other way: a `-command` alias, a shell, another executable,
-`kanna-orm describe`, or the `vet` of a generator, such as `kanna-value vet`, which checks code and writes nothing. Other generators' lines it leaves alone, so what buf or sqlc write has to be there first, and is
+`kanna-orm describe`, or the `vet` of a generator, such as `kanna-value vet`, which checks code and writes nothing, and
+which `kanna vet` runs. Other generators' lines it leaves alone, so what buf or sqlc write has to be there first, and is
 theirs to check.
 
 It warns about a `//kanna:` line whose key no generator of the family has, such as `//kanna:di` for `//kanna:container`,
@@ -101,6 +103,37 @@ generator, which warns about one no declaration holds and about a typo of its ke
 ```text
 internal/feature/todo/handler/todo_handler.go:14:1: warning: //kanna:di is a directive of no kanna generator
 ```
+
+## Checking the code that calls what they write
+
+kanna-value, kanna-orm, and kanna-i18n each come with a vet, which finds what the compiler lets through in the code
+calling what they write. `go tool kanna vet` runs the vet of each generator that the module's `//go:generate` lines run
+and that has one:
+
+```text
+$ go tool kanna vet
+# kanna-value
+internal/feature/todo/usecase/put_todo_use_case.go:42:17: error: "hgih" is none of the constants of model.Priority
+  did you mean model.PriorityHigh?
+```
+
+What a vet reports goes to stderr, below a line naming it, as `go vet` does for a package, and nothing is printed when
+no vet finds anything. A vet that finds an error fails the run, and the others run all the same. The vets run where
+`kanna vet` runs, on the packages given, `./...` by default, and `-tags` goes to each of them.
+
+Which vets run is told by the whole module, so `go tool kanna vet ./internal/feature/todo/usecase` runs them for a
+package with no `//go:generate` line of its own. Before any runs, each is asked for its version: a generator that is not
+a tool of the module, or a release from before its vet, stops them all, as a problem of a plan stops `kanna gen`.
+
+The vets read what is generated as it is on disk, which is what compiles; whether that is up to date is for
+`kanna gen -check` to say. In CI, run both:
+
+```yaml
+- run: go tool kanna gen -check
+- run: go tool kanna vet
+```
+
+A module passing holds nothing the vets found; it does not prove there is nothing to find.
 
 ## How the order is worked out
 

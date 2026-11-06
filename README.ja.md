@@ -4,7 +4,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 
-`kanna` コマンドは、[kanna](https://go-kanna.github.io/ja/) コードジェネレータファミリーを、必要な順序で実行します。パッケージの一覧をプロジェクトで持つ必要がなくなります。設定は増えません。実行するのは、すでにある `//go:generate go tool kanna-*` の行です。各ジェネレータは、このコマンドがなくても今までどおり動きます。
+`kanna` コマンドは、[kanna](https://go-kanna.github.io/ja/) コードジェネレータファミリーを、必要な順序で実行します。パッケージの一覧をプロジェクトで持つ必要がなくなります。vet のあるジェネレータの vet もまとめて実行するので、その一覧も要りません。設定は増えません。実行するのは、すでにある `//go:generate go tool kanna-*` の行です。各ジェネレータは、このコマンドがなくても今までどおり動きます。
 
 ## インストール
 
@@ -80,13 +80,37 @@ external prerequisites:
 
 task は `//go:generate go tool kanna-*` の一行で、`go generate` と同じように実行します。パッケージのディレクトリで、`GOFILE` などの環境変数付きで実行し、行の引用符や `$` の変数も同じように読みます。同じパッケージに同じ行が二つあれば、一回だけ実行し、二つ目以降の行で警告します。`go generate` なら、無駄にもう一度実行するからです。
 
-次の計画は、開始する前に拒否します。task が互いを待っているもの、二つの task が同じファイルを書くもの、入力が存在しないもの、そしてジェネレータを別の形で実行しようとする行です。別の形とは、`-command` エイリアス、シェル、別の実行ファイル、`kanna-orm describe`、ジェネレータの `vet`（`kanna-value vet` など。コードを検査するだけで、何も書きません）です。他のジェネレータの行には触れません。buf や sqlc が書くものは先に用意しておく必要があり、その検査もそれぞれのツールの役目です。
+次の計画は、開始する前に拒否します。task が互いを待っているもの、二つの task が同じファイルを書くもの、入力が存在しないもの、そしてジェネレータを別の形で実行しようとする行です。別の形とは、`-command` エイリアス、シェル、別の実行ファイル、`kanna-orm describe`、ジェネレータの `vet`（`kanna-value vet` など。コードを検査するだけで、何も書きません。`kanna vet` が実行します）です。他のジェネレータの行には触れません。buf や sqlc が書くものは先に用意しておく必要があり、その検査もそれぞれのツールの役目です。
 
 kanna の一族のどのジェネレータのキーでもない `//kanna:` の行（`//kanna:container` のつもりの `//kanna:di` など）は警告します。どのジェネレータも読み飛ばし、ほかのジェネレータの分まで知らせることはできないからです。あるジェネレータのキーの行は、そのジェネレータに任せます。宣言に付いていない行と、キーの打ち間違いは、そのジェネレータが警告します:
 
 ```text
 internal/feature/todo/handler/todo_handler.go:14:1: warning: //kanna:di is a directive of no kanna generator
 ```
+
+## 生成物を呼ぶコードを検査する
+
+kanna-value、kanna-orm、kanna-i18n には、それぞれ vet があります。生成物を呼ぶコードのうち、コンパイラが通してしまう誤りを見つけます。`go tool kanna vet` は、モジュールの `//go:generate` の行が実行するジェネレータのうち、vet のあるものの vet を実行します:
+
+```text
+$ go tool kanna vet
+# kanna-value
+internal/feature/todo/usecase/put_todo_use_case.go:42:17: error: "hgih" is none of the constants of model.Priority
+  did you mean model.PriorityHigh?
+```
+
+vet の報告は、`go vet` がパッケージごとにするのと同じく、その vet の名前の行の下に stderr へ出します。どの vet も何も見つけなければ、何も表示しません。エラーを見つけた vet があれば失敗しますが、残りの vet も実行します。vet は `kanna vet` を実行した場所で、指定したパッケージ（既定は `./...`）に対して実行し、`-tags` はそれぞれに渡します。
+
+どの vet を実行するかはモジュール全体で決めるので、`go tool kanna vet ./internal/feature/todo/usecase` のように、自分の `//go:generate` の行がないパッケージにも vet を実行します。実行する前に、それぞれのバージョンを確かめます。モジュールのツールでないジェネレータや、vet より前のリリースがあれば、`kanna gen` が計画の問題で止まるのと同じく、どの vet も実行しません。
+
+vet は、生成物をディスク上のまま、つまりコンパイルされるものを読みます。それが最新かどうかは `kanna gen -check` の役目です。CI では両方を実行します:
+
+```yaml
+- run: go tool kanna gen -check
+- run: go tool kanna vet
+```
+
+通っても、vet が見つけた誤りがなかったというだけで、誤りがないことの証明ではありません。
 
 ## 順序の決まり方
 
