@@ -7,6 +7,10 @@ go 1.27.3
 use (
 	../../internal
 	../../kanna
+	../../config
+	../../config/example
+	../../config/toml
+	../../config/yaml
 	../../di
 	../../di/example
 	../../fixture

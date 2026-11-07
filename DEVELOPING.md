@@ -8,7 +8,7 @@ spanning two generators and the showcase.
 Check out each repository beside this one, as [ghq](https://github.com/x-motemen/ghq) lays them out:
 
 ```sh
-for r in kanna go-kanna.github.io internal di fixture i18n mapper orm validate value showcase; do
+for r in kanna go-kanna.github.io internal config di fixture i18n mapper orm validate value showcase; do
 	ghq get "github.com/go-kanna/$r"
 done
 ```
