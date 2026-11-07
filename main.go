@@ -181,6 +181,11 @@ func vetCommand(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna vet: %v\n", err)
 		return run.ExitFailure
 	}
+	if *tags != "" {
+		// The vets are given the flag, which takes the place of the tags of
+		// GOFLAGS for them, so it does here too, where the lines are found.
+		ctxt.BuildTags = buildTags(*tags)
+	}
 	m, err := module.Find(dir, ctxt)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "kanna vet: find the module: %v\n", err)
@@ -207,6 +212,12 @@ func vetCommand(ctx context.Context, e env, args []string) int {
 		return run.ExitFailure
 	}
 	return run.ExitOK
+}
+
+// buildTags reads the list of a -tags flag as the go command does: separated
+// by commas, or by spaces as it once was.
+func buildTags(list string) []string {
+	return strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
 // flagAmong returns the first of patterns that is a flag, which the flag

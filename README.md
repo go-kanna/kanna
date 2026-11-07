@@ -119,7 +119,8 @@ internal/feature/todo/usecase/put_todo_use_case.go:42:17: error: "hgih" is none 
 
 What a vet reports goes to stderr, below a line naming it, as `go vet` does for a package, and nothing is printed when
 no vet finds anything. A vet that finds an error fails the run, and the others run all the same. The vets run where
-`kanna vet` runs, on the packages given, `./...` by default, and `-tags` goes to each of them.
+`kanna vet` runs, on the packages given, `./...` by default, and `-tags` goes to each of them. The tags also choose the
+files whose `//go:generate` lines tell which vets run, as they choose those the vets read.
 
 Which vets run is told by the whole module, so `go tool kanna vet ./internal/feature/todo/usecase` runs them for a
 package with no `//go:generate` line of its own. Before any runs, each is asked for its version: a generator that is not

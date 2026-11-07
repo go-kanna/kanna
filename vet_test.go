@@ -149,6 +149,25 @@ func TestVet_TagsAndPatterns(t *testing.T) {
 	logged(t, dir, "kanna-value -tags x,y ./a ./b", "kanna-i18n -tags x,y ./a ./b")
 }
 
+// The tags choose the files whose lines tell what vets run, as they choose the
+// files the vets read.
+func TestVet_TagsChooseTheLines(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{
+		"a/a.go":     "package a\n",
+		"a/extra.go": "//go:build extra\n\npackage a\n\n//go:generate go tool kanna-value\n",
+	}
+	dir := vetProject(t, files, map[string]string{"kanna-value": fakeVet})
+
+	got := kanna(t, dir, "vet", "-tags", "extra")
+
+	if got != (outcome{}) {
+		t.Fatalf("%+v", got)
+	}
+	logged(t, dir, "kanna-value -tags extra ./...")
+}
+
 // What vets run is told by the whole module, wherever in it kanna vet runs, and
 // they run there.
 func TestVet_FromBelowTheRoot(t *testing.T) {

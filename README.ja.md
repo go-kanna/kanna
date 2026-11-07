@@ -99,7 +99,7 @@ internal/feature/todo/usecase/put_todo_use_case.go:42:17: error: "hgih" is none 
   did you mean model.PriorityHigh?
 ```
 
-vet の報告は、`go vet` がパッケージごとにするのと同じく、その vet の名前の行の下に stderr へ出します。どの vet も何も見つけなければ、何も表示しません。エラーを見つけた vet があれば失敗しますが、残りの vet も実行します。vet は `kanna vet` を実行した場所で、指定したパッケージ（既定は `./...`）に対して実行し、`-tags` はそれぞれに渡します。
+vet の報告は、`go vet` がパッケージごとにするのと同じく、その vet の名前の行の下に stderr へ出します。どの vet も何も見つけなければ、何も表示しません。エラーを見つけた vet があれば失敗しますが、残りの vet も実行します。vet は `kanna vet` を実行した場所で、指定したパッケージ（既定は `./...`）に対して実行し、`-tags` はそれぞれに渡します。どの vet を実行するかを決める `//go:generate` の行も、vet が読むファイルと同じく、そのタグで選んだファイルから探します。
 
 どの vet を実行するかはモジュール全体で決めるので、`go tool kanna vet ./internal/feature/todo/usecase` のように、自分の `//go:generate` の行がないパッケージにも vet を実行します。実行する前に、それぞれのバージョンを確かめます。モジュールのツールでないジェネレータや、vet より前のリリースがあれば、`kanna gen` が計画の問題で止まるのと同じく、どの vet も実行しません。
 
