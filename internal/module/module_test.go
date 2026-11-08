@@ -189,7 +189,7 @@ func TestFind_Directives(t *testing.T) {
 
 	dir := write(t, map[string]string{
 		"b/b.go":      "package b\n\n//go:generate go tool kanna-value\n",
-		"a/z.go":      "package a\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validate\n",
+		"a/z.go":      "package a\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validator\n",
 		"a/a.go":      "package a\n\n//go:generate go tool kanna-di\n",
 		"a/a_test.go": "package a_test\n\n//go:generate go tool kanna-fixture\n",
 		"a/ignore.go": "//go:build ignore\n\npackage main\n\n//go:generate go tool kanna-ignored\n",
@@ -204,7 +204,7 @@ func TestFind_Directives(t *testing.T) {
 		{File: filepath.Join(dir, "a", "a_test.go"), Line: 3, Package: "a_test", Text: "go tool kanna-fixture"},
 		{File: filepath.Join(dir, "a", "tag.go"), Line: 5, Package: "a", Text: "go tool kanna-tagged"},
 		{File: filepath.Join(dir, "a", "z.go"), Line: 3, Package: "a", Text: "go tool kanna-value"},
-		{File: filepath.Join(dir, "a", "z.go"), Line: 4, Package: "a", Text: "go tool kanna-validate"},
+		{File: filepath.Join(dir, "a", "z.go"), Line: 4, Package: "a", Text: "go tool kanna-validator"},
 		{File: filepath.Join(dir, "b", "b.go"), Line: 3, Package: "b", Text: "go tool kanna-value"},
 	}
 	if !slices.Equal(got, want) {

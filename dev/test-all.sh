@@ -11,7 +11,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 work=$root/kanna/dev/go-kanna.work
 repos=("$@")
 if [ ${#repos[@]} -eq 0 ]; then
-	repos=(internal config di fixture i18n mapper orm validate value kanna)
+	repos=(internal config di fixture i18n mapper orm validator value kanna)
 fi
 
 failed=()
