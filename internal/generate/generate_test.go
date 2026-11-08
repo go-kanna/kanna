@@ -16,7 +16,7 @@ func TestScan(t *testing.T) {
 	t.Parallel()
 
 	src := "package p\n\n//go:generate go tool kanna-value\n" +
-		"//go:generate\tgo tool kanna-validate\r\n" +
+		"//go:generate\tgo tool kanna-validator\r\n" +
 		"// go:generate spaced\n" +
 		"  //go:generate indented\n" +
 		"//go:generatefoo\n" +
@@ -28,7 +28,7 @@ func TestScan(t *testing.T) {
 
 	want := []generate.Directive{
 		{File: "/m/p/p.go", Line: 3, Package: "p", Text: "go tool kanna-value"},
-		{File: "/m/p/p.go", Line: 4, Package: "p", Text: "go tool kanna-validate"},
+		{File: "/m/p/p.go", Line: 4, Package: "p", Text: "go tool kanna-validator"},
 		{File: "/m/p/p.go", Line: 10, Package: "p", Text: "in a raw string"},
 		{File: "/m/p/p.go", Line: 12, Package: "p", Text: "at the end"},
 	}

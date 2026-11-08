@@ -8,7 +8,7 @@ spanning two generators and the showcase.
 Check out each repository beside this one, as [ghq](https://github.com/x-motemen/ghq) lays them out:
 
 ```sh
-for r in kanna go-kanna.github.io internal config di fixture i18n mapper orm validate value showcase; do
+for r in kanna go-kanna.github.io internal config di fixture i18n mapper orm validator value showcase; do
 	ghq get "github.com/go-kanna/$r"
 done
 ```
@@ -30,7 +30,7 @@ make test GOWORK=$HOME/ghq/github.com/go-kanna/kanna/dev/go-kanna.work
 
 - Across the family: `dev/test-all.sh` runs `make test` in internal and each generator against the family workspace,
   and reports the ones that fail once all have run. Name repositories to run those alone:
-  `dev/test-all.sh mapper validate`. The showcase's tests need its database and the URLs of `.env`, as its README
+  `dev/test-all.sh mapper validator`. The showcase's tests need its database and the URLs of `.env`, as its README
   says, so it runs only when named.
 - On its own: `make test` in a repository, against the releases its go.mod requires, as its CI does.
 

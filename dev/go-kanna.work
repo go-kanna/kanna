@@ -24,9 +24,9 @@ use (
 	../../orm/example/mysql
 	../../orm/example/postgres
 	../../showcase
-	../../validate
-	../../validate/bench
-	../../validate/example
+	../../validator
+	../../validator/bench
+	../../validator/example
 	../../value
 	../../value/example
 )

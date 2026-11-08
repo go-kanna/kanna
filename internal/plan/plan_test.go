@@ -138,24 +138,24 @@ func TestMake_ImportsDecideTheOrder(t *testing.T) {
 
 	// z comes last by position, and first by what a imports.
 	dir := write(t, map[string]string{
-		"a/a.go": "package a\n\nimport _ \"example.com/m/b\"\n\n//go:generate go tool kanna-validate\n",
+		"a/a.go": "package a\n\nimport _ \"example.com/m/b\"\n\n//go:generate go tool kanna-validator\n",
 		"b/b.go": "package b\n\nimport _ \"example.com/m/z\"\n",
 		"z/z.go": "package z\n\n//go:generate go tool kanna-value\n",
 	})
 
 	p := makePlan(t, dir, answers{
-		"a kanna-validate": {Packages: []string{"a"}, Writes: []string{"a/validate_gen.go"}},
+		"a kanna-validator": {Packages: []string{"a"}, Writes: []string{"a/validator_gen.go"}},
 		"z kanna-value":    {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
 	})
 
-	wantOrder(t, p, "z/z.go:3 kanna-value", "a/a.go:5 kanna-validate")
+	wantOrder(t, p, "z/z.go:3 kanna-value", "a/a.go:5 kanna-validator")
 	want := "1. z/z.go:3\n" +
 		"   run:    go tool kanna-value\n" +
 		"   writes: z/value_gen.go\n" +
 		"\n" +
 		"2. a/a.go:5\n" +
-		"   run:    go tool kanna-validate\n" +
-		"   writes: a/validate_gen.go\n" +
+		"   run:    go tool kanna-validator\n" +
+		"   writes: a/validator_gen.go\n" +
 		"   after:  1 — reads z, which kanna-value writes into\n"
 	if got := written(p); got != want {
 		t.Errorf("Write() =\n%s\nwant\n%s", got, want)
@@ -167,16 +167,16 @@ func TestMake_WithoutADependencyTheModulesOrderStands(t *testing.T) {
 
 	dir := write(t, map[string]string{
 		"b/b.go": "package b\n\n//go:generate go tool kanna-value\n",
-		"a/a.go": "package a\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validate\n",
+		"a/a.go": "package a\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validator\n",
 	})
 
 	p := makePlan(t, dir, answers{
 		"a kanna-value":    {Packages: []string{"a"}},
-		"a kanna-validate": {Packages: []string{"a"}},
+		"a kanna-validator": {Packages: []string{"a"}},
 		"b kanna-value":    {Packages: []string{"b"}},
 	})
 
-	wantOrder(t, p, "a/a.go:3 kanna-value", "a/a.go:4 kanna-validate", "b/b.go:3 kanna-value")
+	wantOrder(t, p, "a/a.go:3 kanna-value", "a/a.go:4 kanna-validator", "b/b.go:3 kanna-value")
 }
 
 // Output in another directory than the line's is tied to what reads it.
@@ -186,7 +186,7 @@ func TestMake_OutputsElsewhere(t *testing.T) {
 	dir := write(t, map[string]string{
 		"model/m.go": "package model\n\n//go:generate go tool kanna-fixture\n",
 		"repo/r.go":  "package repo\n\n//go:generate go tool kanna-orm -destination ../pg\n",
-		"use/u.go":   "package use\n\nimport _ \"example.com/m/model/fixture\"\n\n//go:generate go tool kanna-validate\n",
+		"use/u.go":   "package use\n\nimport _ \"example.com/m/model/fixture\"\n\n//go:generate go tool kanna-validator\n",
 		"zdi/d.go":   "package zdi\n\n//go:generate go tool kanna-di\n",
 	})
 
@@ -196,7 +196,7 @@ func TestMake_OutputsElsewhere(t *testing.T) {
 			Packages: []string{"repo"},
 			Writes:   []string{"pg/orm_gen.go"},
 		},
-		"use kanna-validate": {Packages: []string{"use"}, Writes: []string{"use/validate_gen.go"}},
+		"use kanna-validator": {Packages: []string{"use"}, Writes: []string{"use/validator_gen.go"}},
 		"zdi kanna-di": {
 			Packages: []string{"zdi"},
 			Refs:     []deps.Ref{{Package: modulePath + "/pg", Via: "with=pg.New"}},
@@ -205,7 +205,7 @@ func TestMake_OutputsElsewhere(t *testing.T) {
 	})
 
 	wantOrder(t, p,
-		"model/m.go:3 kanna-fixture", "repo/r.go:3 kanna-orm", "use/u.go:5 kanna-validate", "zdi/d.go:3 kanna-di")
+		"model/m.go:3 kanna-fixture", "repo/r.go:3 kanna-orm", "use/u.go:5 kanna-validator", "zdi/d.go:3 kanna-di")
 	got := written(p)
 	for _, want := range []string{
 		"after:  1 — reads model/fixture, which kanna-fixture writes into",
@@ -223,18 +223,18 @@ func TestMake_Tests(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{
-		"a/a.go":      "package a\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validate\n",
+		"a/a.go":      "package a\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validator\n",
 		"a/a_test.go": "package a\n\nimport _ \"example.com/m/z\"\n",
 		"z/z.go":      "package z\n\n//go:generate go tool kanna-value\n",
 	})
 
 	p := makePlan(t, dir, answers{
 		"a kanna-di":       {Packages: []string{"a"}, Tests: true},
-		"a kanna-validate": {Packages: []string{"a"}},
+		"a kanna-validator": {Packages: []string{"a"}},
 		"z kanna-value":    {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
 	})
 
-	wantOrder(t, p, "a/a.go:4 kanna-validate", "z/z.go:3 kanna-value", "a/a.go:3 kanna-di")
+	wantOrder(t, p, "a/a.go:4 kanna-validator", "z/z.go:3 kanna-value", "a/a.go:3 kanna-di")
 	if got := written(p); !strings.Contains(got, "its tests read z, which kanna-value writes into") {
 		t.Errorf("Write() =\n%s", got)
 	}
@@ -252,7 +252,7 @@ func TestMake_SamePackage(t *testing.T) {
 		Packages: []string{"p"}, SourcesOnly: true, Writes: []string{"p/value_gen.go"}, Declares: []string{"p.NewEmail"},
 	}
 	validate := deps.Report{
-		Packages: []string{"p"}, Writes: []string{"p/validate_gen.go"}, Declares: []string{"p.In.Validate"},
+		Packages: []string{"p"}, Writes: []string{"p/validator_gen.go"}, Declares: []string{"p.In.Validate"},
 	}
 
 	tests := []struct {
@@ -273,17 +273,17 @@ func TestMake_SamePackage(t *testing.T) {
 		},
 		{
 			name: "code calls what one generates",
-			src: "package p\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validate\n" +
+			src: "package p\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validator\n" +
 				marked,
-			a:     answers{"p kanna-di": di, "p kanna-validate": validate},
-			order: []string{"p/p.go:4 kanna-validate", "p/p.go:3 kanna-di"},
-			says:  "after:  1 — code in p calls what kanna-validate generates",
+			a:     answers{"p kanna-di": di, "p kanna-validator": validate},
+			order: []string{"p/p.go:4 kanna-validator", "p/p.go:3 kanna-di"},
+			says:  "after:  1 — code in p calls what kanna-validator generates",
 		},
 		{
 			name:  "nothing says which",
-			src:   "package p\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validate\n",
-			a:     answers{"p kanna-di": di, "p kanna-validate": validate},
-			order: []string{"p/p.go:3 kanna-di", "p/p.go:4 kanna-validate"},
+			src:   "package p\n\n//go:generate go tool kanna-di\n//go:generate go tool kanna-validator\n",
+			a:     answers{"p kanna-di": di, "p kanna-validator": validate},
+			order: []string{"p/p.go:3 kanna-di", "p/p.go:4 kanna-validator"},
 			says:  "order:  after 1 by position alone",
 		},
 	}
@@ -307,7 +307,7 @@ func TestMake_CodeCallsWhatBothGenerate(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{
-		"p/p.go": "package p\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validate\n\n" +
+		"p/p.go": "package p\n\n//go:generate go tool kanna-value\n//go:generate go tool kanna-validator\n\n" +
 			"type In struct{}\n\nvar _, _ = NewEmail(), In{}.Validate()\n",
 	})
 
@@ -315,12 +315,12 @@ func TestMake_CodeCallsWhatBothGenerate(t *testing.T) {
 		"p kanna-value": {
 			Packages: []string{"p"}, SourcesOnly: true, Writes: []string{"p/value_gen.go"}, Declares: []string{"p.NewEmail"},
 		},
-		"p kanna-validate": {
-			Packages: []string{"p"}, Writes: []string{"p/validate_gen.go"}, Declares: []string{"p.In.Validate"},
+		"p kanna-validator": {
+			Packages: []string{"p"}, Writes: []string{"p/validator_gen.go"}, Declares: []string{"p.In.Validate"},
 		},
 	})
 
-	wantOrder(t, p, "p/p.go:3 kanna-value", "p/p.go:4 kanna-validate")
+	wantOrder(t, p, "p/p.go:3 kanna-value", "p/p.go:4 kanna-validator")
 	if got, want := p.Tasks[0].Pending, []string{modulePath + "/p.In.Validate"}; !slices.Equal(got, want) {
 		t.Errorf("Pending of the first = %q, want %q", got, want)
 	}
@@ -362,7 +362,7 @@ func TestMake_ACycleStops(t *testing.T) {
 
 	dir := write(t, map[string]string{
 		"a/a.go": "package a\n\n//go:generate go tool kanna-di\n",
-		"b/b.go": "package b\n\n//go:generate go tool kanna-validate\n",
+		"b/b.go": "package b\n\n//go:generate go tool kanna-validator\n",
 	})
 
 	p := makePlan(t, dir, answers{
@@ -371,16 +371,16 @@ func TestMake_ACycleStops(t *testing.T) {
 			Refs:     []deps.Ref{{Package: modulePath + "/b", Via: "with=b.New"}},
 			Writes:   []string{"a/di_gen.go"},
 		},
-		"b kanna-validate": {
+		"b kanna-validator": {
 			Packages: []string{"b"},
 			Refs:     []deps.Ref{{Package: modulePath + "/a", Via: "rule=a.T"}},
-			Writes:   []string{"b/validate_gen.go"},
+			Writes:   []string{"b/validator_gen.go"},
 		},
 	})
 
 	wantProblem(t, p, "wait for each other")
-	wantProblem(t, p, "kanna-di at a/a.go:3 waits for kanna-validate at b/b.go:3: with=b.New names b")
-	wantProblem(t, p, "kanna-validate at b/b.go:3 waits for kanna-di at a/a.go:3: rule=a.T names a")
+	wantProblem(t, p, "kanna-di at a/a.go:3 waits for kanna-validator at b/b.go:3: with=b.New names b")
+	wantProblem(t, p, "kanna-validator at b/b.go:3 waits for kanna-di at a/a.go:3: rule=a.T names a")
 	if len(p.Tasks) != 2 {
 		t.Errorf("Tasks = %q, want both still shown", tasks(p))
 	}
@@ -394,12 +394,12 @@ func TestMake_WarnsOfAKeyNoGeneratorHas(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{
-		"p/a.go": "package p\n\n//go:generate go tool kanna-validate\n\n//kanna:di\ntype Server struct{}\n\n" +
+		"p/a.go": "package p\n\n//go:generate go tool kanna-validator\n\n//kanna:di\ntype Server struct{}\n\n" +
 			"//kanna:validte\ntype Form struct{}\n",
 		"q/q.go": "package q\n\n//kanna:di\ntype Other struct{}\n",
 	})
 
-	p := makePlan(t, dir, answers{"p kanna-validate": {Packages: []string{"p"}, Writes: []string{"p/validate_gen.go"}}},
+	p := makePlan(t, dir, answers{"p kanna-validator": {Packages: []string{"p"}, Writes: []string{"p/validator_gen.go"}}},
 		"./p")
 
 	got := make([]string, len(p.Warnings))
@@ -419,17 +419,17 @@ func TestMake_TheSameLineTwice(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{
-		"p/a.go": "package p\n\n//go:generate go tool kanna-validate\n",
-		"p/b.go": "package p\n\n//go:generate go tool kanna-validate\n",
+		"p/a.go": "package p\n\n//go:generate go tool kanna-validator\n",
+		"p/b.go": "package p\n\n//go:generate go tool kanna-validator\n",
 	})
 
-	p := makePlan(t, dir, answers{"p kanna-validate": {Packages: []string{"p"}, Writes: []string{"p/validate_gen.go"}}})
+	p := makePlan(t, dir, answers{"p kanna-validator": {Packages: []string{"p"}, Writes: []string{"p/validator_gen.go"}}})
 
-	wantOrder(t, p, "p/a.go:3 kanna-validate")
+	wantOrder(t, p, "p/a.go:3 kanna-validator")
 	if got := written(p); !strings.Contains(got, "also:   p/b.go:3") {
 		t.Errorf("Write() =\n%s", got)
 	}
-	want := filepath.Join(dir, "p", "b.go") + ":3: warning: //go:generate go tool kanna-validate is in p/a.go:3 " +
+	want := filepath.Join(dir, "p", "b.go") + ":3: warning: //go:generate go tool kanna-validator is in p/a.go:3 " +
 		"already, and runs once for the package\n  remove one of them"
 	if len(p.Warnings) != 1 || p.Warnings[0].String() != want {
 		t.Errorf("Warnings = %v, want %q", p.Warnings, want)
@@ -554,21 +554,21 @@ func TestMake_ANameOfAPackageItImports(t *testing.T) {
 	t.Parallel()
 
 	dir := write(t, map[string]string{
-		"a/use/u.go":   "package use\n\nimport _ \"example.com/m/a/model\"\n\n//go:generate go tool kanna-validate\n",
+		"a/use/u.go":   "package use\n\nimport _ \"example.com/m/a/model\"\n\n//go:generate go tool kanna-validator\n",
 		"a/model/m.go": "package model\n",
 		"b/model/m.go": "package model\n\nimport _ \"example.com/m/a/use\"\n\n//go:generate go tool kanna-value\n",
 	})
 
 	p := makePlan(t, dir, answers{
-		"a/use kanna-validate": {
+		"a/use kanna-validator": {
 			Packages: []string{"a/use"},
 			Refs:     []deps.Ref{{Package: modulePath + "/a/model", Via: "rule=model.T"}},
-			Writes:   []string{"a/use/validate_gen.go"},
+			Writes:   []string{"a/use/validator_gen.go"},
 		},
 		"b/model kanna-value": {Packages: []string{"b/model"}, Writes: []string{"b/model/value_gen.go"}},
 	})
 
-	wantOrder(t, p, "a/use/u.go:5 kanna-validate", "b/model/m.go:5 kanna-value")
+	wantOrder(t, p, "a/use/u.go:5 kanna-validator", "b/model/m.go:5 kanna-value")
 }
 
 // A package holding nothing but output is named by the import path it will
@@ -600,11 +600,11 @@ func TestMake_IsTheSameEveryTime(t *testing.T) {
 	a := answers{}
 	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
 		files[name+"/"+name+".go"] = "package " + name + "\n\n//go:generate go tool kanna-value\n" +
-			"//go:generate go tool kanna-validate\n"
+			"//go:generate go tool kanna-validator\n"
 		a[name+" kanna-value"] = deps.Report{
 			Packages: []string{name}, SourcesOnly: true, Writes: []string{name + "/value_gen.go"},
 		}
-		a[name+" kanna-validate"] = deps.Report{Packages: []string{name}, Writes: []string{name + "/validate_gen.go"}}
+		a[name+" kanna-validator"] = deps.Report{Packages: []string{name}, Writes: []string{name + "/validator_gen.go"}}
 	}
 	dir := write(t, files)
 
@@ -640,7 +640,7 @@ func TestMake_Patterns(t *testing.T) {
 
 	files := map[string]string{
 		"low/l.go":  "package low\n\n//go:generate go tool kanna-value\n",
-		"mid/m.go":  "package mid\n\nimport _ \"example.com/m/low\"\n\n//go:generate go tool kanna-validate\n",
+		"mid/m.go":  "package mid\n\nimport _ \"example.com/m/low\"\n\n//go:generate go tool kanna-validator\n",
 		"high/h.go": "package high\n\nimport _ \"example.com/m/mid\"\n\n//go:generate go tool kanna-di\n",
 		"else/e.go": "package other\n\n//go:generate go tool kanna-mapper\n",
 		"src/s.go":  "package src\n\n//go:generate go tool kanna-fixture -destination ../out\n",
@@ -648,7 +648,7 @@ func TestMake_Patterns(t *testing.T) {
 	}
 	a := answers{
 		"low kanna-value":                       {Packages: []string{"low"}, Writes: []string{"low/value_gen.go"}},
-		"mid kanna-validate":                    {Packages: []string{"mid"}, Writes: []string{"mid/validate_gen.go"}},
+		"mid kanna-validator":                    {Packages: []string{"mid"}, Writes: []string{"mid/validator_gen.go"}},
 		"high kanna-di":                         {Packages: []string{"high"}, Writes: []string{"high/di_gen.go"}},
 		"else kanna-mapper":                     {Packages: []string{"else"}, Writes: []string{"else/mapper_gen.go"}},
 		"src kanna-fixture -destination ../out": {Packages: []string{"src"}, Writes: []string{"out/fixture_gen.go"}},
@@ -656,7 +656,7 @@ func TestMake_Patterns(t *testing.T) {
 	dir := write(t, files)
 
 	// Producers come along, and those who read the result do not.
-	wantOrder(t, makePlan(t, dir, a, "./mid"), "low/l.go:3 kanna-value", "mid/m.go:5 kanna-validate")
+	wantOrder(t, makePlan(t, dir, a, "./mid"), "low/l.go:3 kanna-value", "mid/m.go:5 kanna-validator")
 	// A package holding output is matched by what writes it.
 	wantOrder(t, makePlan(t, dir, a, "./out"), "src/s.go:3 kanna-fixture")
 	wantProblem(t, makePlan(t, dir, a, "./none"), "no //go:generate go tool kanna-* line matches ./none")
@@ -669,20 +669,20 @@ func TestMake_OutputHasNoSay(t *testing.T) {
 	t.Parallel()
 
 	files := map[string]string{
-		"a/a.go": "package a\n\nimport _ \"example.com/m/z\"\n\n//go:generate go tool kanna-validate\n" +
+		"a/a.go": "package a\n\nimport _ \"example.com/m/z\"\n\n//go:generate go tool kanna-validator\n" +
 			"//go:generate go tool kanna-di\n\nvar _ = In{}.Validate()\n\ntype In struct{}\n",
 		"z/z.go": "package z\n\n//go:generate go tool kanna-value\n",
 	}
 	a := answers{
-		"a kanna-validate": {
-			Packages: []string{"a"}, Writes: []string{"a/validate_gen.go"}, Declares: []string{"a.In.Validate"},
+		"a kanna-validator": {
+			Packages: []string{"a"}, Writes: []string{"a/validator_gen.go"}, Declares: []string{"a.In.Validate"},
 		},
 		"a kanna-di":    {Packages: []string{"a"}, Writes: []string{"a/di_gen.go"}, Declares: []string{"a.NewC"}},
 		"z kanna-value": {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
 	}
 	fresh := written(makePlan(t, write(t, files), a))
 
-	files["a/validate_gen.go"] = "// Code generated by kanna-validate v0.0.1. DO NOT EDIT.\n\npackage a\n\n" +
+	files["a/validator_gen.go"] = "// Code generated by kanna-validator v0.0.1. DO NOT EDIT.\n\npackage a\n\n" +
 		"import _ \"example.com/m/gone\"\n\nfunc (In) Validate() error { return nil }\n"
 	files["a/di_gen.go"] = "// Code generated by kanna-di v0.0.1. DO NOT EDIT.\n\npackage stale\n\nfunc broken( {\n"
 	files["z/value_gen.go"] = "// Code generated by kanna-value v0.0.1. DO NOT EDIT.\n\npackage z\n\n" +
