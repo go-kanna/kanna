@@ -145,7 +145,7 @@ func TestMake_ImportsDecideTheOrder(t *testing.T) {
 
 	p := makePlan(t, dir, answers{
 		"a kanna-validator": {Packages: []string{"a"}, Writes: []string{"a/validator_gen.go"}},
-		"z kanna-value":    {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
+		"z kanna-value":     {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
 	})
 
 	wantOrder(t, p, "z/z.go:3 kanna-value", "a/a.go:5 kanna-validator")
@@ -171,9 +171,9 @@ func TestMake_WithoutADependencyTheModulesOrderStands(t *testing.T) {
 	})
 
 	p := makePlan(t, dir, answers{
-		"a kanna-value":    {Packages: []string{"a"}},
+		"a kanna-value":     {Packages: []string{"a"}},
 		"a kanna-validator": {Packages: []string{"a"}},
-		"b kanna-value":    {Packages: []string{"b"}},
+		"b kanna-value":     {Packages: []string{"b"}},
 	})
 
 	wantOrder(t, p, "a/a.go:3 kanna-value", "a/a.go:4 kanna-validator", "b/b.go:3 kanna-value")
@@ -229,9 +229,9 @@ func TestMake_Tests(t *testing.T) {
 	})
 
 	p := makePlan(t, dir, answers{
-		"a kanna-di":       {Packages: []string{"a"}, Tests: true},
+		"a kanna-di":        {Packages: []string{"a"}, Tests: true},
 		"a kanna-validator": {Packages: []string{"a"}},
-		"z kanna-value":    {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
+		"z kanna-value":     {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
 	})
 
 	wantOrder(t, p, "a/a.go:4 kanna-validator", "z/z.go:3 kanna-value", "a/a.go:3 kanna-di")
@@ -648,7 +648,7 @@ func TestMake_Patterns(t *testing.T) {
 	}
 	a := answers{
 		"low kanna-value":                       {Packages: []string{"low"}, Writes: []string{"low/value_gen.go"}},
-		"mid kanna-validator":                    {Packages: []string{"mid"}, Writes: []string{"mid/validator_gen.go"}},
+		"mid kanna-validator":                   {Packages: []string{"mid"}, Writes: []string{"mid/validator_gen.go"}},
 		"high kanna-di":                         {Packages: []string{"high"}, Writes: []string{"high/di_gen.go"}},
 		"else kanna-mapper":                     {Packages: []string{"else"}, Writes: []string{"else/mapper_gen.go"}},
 		"src kanna-fixture -destination ../out": {Packages: []string{"src"}, Writes: []string{"out/fixture_gen.go"}},
