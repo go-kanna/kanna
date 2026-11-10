@@ -50,7 +50,8 @@ not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
 ```
 
 What a generator says goes to stderr, below its task, and the report to stdout. Its paths lead from where `kanna gen`
-runs, as the go command's do, rather than from the package the generator runs in.
+runs, as the go command's do, rather than from the package the generator runs in, and so do those of the report and of
+`-plan`.
 
 Packages narrow it down, as for the go command. `./...` is the default. The packages bring along what writes what they
 read, and not what reads them.

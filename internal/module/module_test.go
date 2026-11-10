@@ -304,6 +304,14 @@ func TestModule_Paths(t *testing.T) {
 	if got := m.Rel(filepath.Join(dir, "a", "a.go")); got != "a/a.go" {
 		t.Errorf("Rel() = %q", got)
 	}
+
+	below, err := module.Find(filepath.Join(dir, "a"), build.Default)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := below.Rel(filepath.Join(dir, "b", "b.go")); got != "../b/b.go" {
+		t.Errorf("Rel() from below the root = %q", got)
+	}
 }
 
 func TestModule_DirOf_AModuleItRequires(t *testing.T) {

@@ -633,7 +633,7 @@ func TestGen_ThroughALink(t *testing.T) {
 	if got.code != 0 {
 		t.Fatalf("%+v", got)
 	}
-	contains(t, got.stdout, "1. c/c.go:3\n", "2. b/b.go:5\n", "3. a/a.go:5\n")
+	contains(t, got.stdout, "1. ../c/c.go:3\n", "2. ../b/b.go:5\n", "3. a.go:5\n")
 }
 
 func TestGen_Patterns(t *testing.T) {
@@ -660,9 +660,13 @@ func TestGen_FromBelowTheRoot(t *testing.T) {
 
 	dir := project(t, chain(""))
 
+	plan := kanna(t, filepath.Join(dir, "b"), "gen", "-plan", ".")
 	got := kanna(t, filepath.Join(dir, "b"), "gen", ".")
 
-	contains(t, got.stdout, "2 tasks, 2 files changed\n")
+	// The paths lead from where kanna runs, as those the generators report do.
+	contains(t, plan.stdout, "1. ../c/c.go:3\n", "   writes: ../c/c_gen.go\n", "2. b.go:5\n", "   writes: b_gen.go\n")
+	contains(t, got.stdout, "  ../c/c.go:3  kanna-fake  wrote ../c/c_gen.go\n",
+		"  b.go:5       kanna-fake  wrote b_gen.go\n", "2 tasks, 2 files changed\n")
 }
 
 func TestCommand_Usage(t *testing.T) {

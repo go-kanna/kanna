@@ -43,7 +43,7 @@ not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
 1 file changed; completed changes remain in the working tree
 ```
 
-ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。
+ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。報告と `-plan` のパスも同じです。
 
 go コマンドと同じくパッケージで絞り込めます。既定は `./...` です。指定したパッケージが読むものを書く task は一緒に実行し、それを読む task は実行しません。
 

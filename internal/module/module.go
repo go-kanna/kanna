@@ -38,6 +38,10 @@ type Module struct {
 	// Dir is the directory of its go.mod.
 	Dir string
 
+	// From is the directory it was found from, where the command runs, which
+	// Rel names paths from. Empty means Dir.
+	From string
+
 	// Path is its module path.
 	Path string
 
@@ -94,7 +98,12 @@ func Find(dir string, ctxt build.Context) (*Module, error) {
 		data, err := os.ReadFile(filepath.Join(d, "go.mod")) //nolint:gosec // the go.mod the go command would use
 		switch {
 		case err == nil:
-			return load(d, data, ctxt)
+			m, err := load(d, data, ctxt)
+			if err != nil {
+				return nil, err
+			}
+			m.From = dir
+			return m, nil
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err //nolint:wrapcheck // a *fs.PathError, which names the file
 		case filepath.Dir(d) == d:
@@ -345,9 +354,10 @@ func (m *Module) DirOf(importPath string) (string, bool) {
 	return filepath.Join(m.Dir, filepath.FromSlash(rel)), true
 }
 
-// Rel names path relative to the module, with forward slashes, for showing it.
+// Rel names path relative to From, with forward slashes, for showing it: from
+// where the command runs, as the paths of what the generators report are.
 func (m *Module) Rel(file string) string {
-	rel, err := filepath.Rel(m.Dir, file)
+	rel, err := filepath.Rel(cmp.Or(m.From, m.Dir), file)
 	if err != nil {
 		return file
 	}
