@@ -15,7 +15,15 @@ working without it.
 go get -tool github.com/go-kanna/kanna@latest
 ```
 
-Each generator it runs has to be a release that answers `-deps`, which `kanna gen` tells you when one is not.
+Each generator it runs has to be a release that answers `-deps` and builds with the go-kanna/internal the module
+selects, which a newer kanna or generator can raise; `kanna gen` and `kanna vet` tell you when one is not. To update
+every tool of the module at once:
+
+```sh
+go get tool
+```
+
+`go tool kanna -version` prints the version of kanna, as `-version` does for each generator.
 
 ## Usage
 

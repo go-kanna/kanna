@@ -12,7 +12,13 @@
 go get -tool github.com/go-kanna/kanna@latest
 ```
 
-実行するジェネレータは、`-deps` に答えられるリリースである必要があります。そうでないものがあれば `kanna gen` が伝えます。
+実行するジェネレータは、`-deps` に答えられ、モジュールが選ぶ go-kanna/internal でビルドできるリリースである必要があります。そうでないものがあれば `kanna gen` と `kanna vet` が伝えます。選ばれる go-kanna/internal は、新しい kanna やジェネレータを入れると上がることがあります。モジュールのツールをまとめて上げるには、次のようにします。
+
+```sh
+go get tool
+```
+
+`go tool kanna -version` は kanna の版を表示します。各ジェネレータの `-version` と同じです。
 
 ## 使い方
 

@@ -248,6 +248,21 @@ func TestVet_AToolThatDoesNotBuild(t *testing.T) {
 	contains(t, got.stderr, "b/b.go:3: error: go tool kanna-value vet -version: exit status 1:", "undefined")
 }
 
+func TestVet_AGeneratorThatDoesNotBuild(t *testing.T) {
+	t.Parallel()
+
+	dir := releasedTool(t, map[string]string{"b/b.go": "package b\n\n//go:generate go tool kanna-value\n"})
+
+	got := kanna(t, dir, "vet")
+
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stderr, "b/b.go:3: error: kanna-value v0.0.7 does not build with "+
+		"github.com/go-kanna/internal v0.0.29, which this module selects; "+
+		"update it: go get -tool github.com/go-kanna/value/cmd/kanna-value@latest, or update every tool: go get tool")
+}
+
 func TestVet_OutsideAModule(t *testing.T) {
 	t.Parallel()
 
