@@ -54,7 +54,8 @@ runs, as the go command's do, rather than from the package the generator runs in
 `-plan`.
 
 Packages narrow it down, as for the go command. `./...` is the default. The packages bring along what writes what they
-read, and not what reads them.
+read, and not what reads them. `-tags` takes comma-separated build tags, as the go command's does: they choose the files
+whose `//go:generate` lines run, and go to each generator, which loads its packages with them.
 
 `go tool kanna gen -plan` prints what would run, and why in that order, running nothing:
 
@@ -92,6 +93,8 @@ change through the tasks `-check` could not check. `git add -AN` has `git diff` 
 ```yaml
 - run: go tool kanna gen && git add -AN && git diff --exit-code
 ```
+
+`KANNA_CHECK=1` in the environment does what `-check` does, as it does for each generator. Neither goes with `-plan`.
 
 ### What it does and does not run
 

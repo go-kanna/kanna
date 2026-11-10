@@ -709,7 +709,7 @@ func TestAsk_NoSuchTool(t *testing.T) {
 	ctxt := build.Default
 	ctxt.GOROOT = goroot(t)
 	p, err := plan.Make(t.Context(), plan.Config{
-		Module: m, Selection: selection, Build: ctxt, Ask: plan.Ask(ctxt),
+		Module: m, Selection: selection, Build: ctxt, Ask: plan.Ask(ctxt, ""),
 	})
 	if err != nil {
 		t.Fatal(err)

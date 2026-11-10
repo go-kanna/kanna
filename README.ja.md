@@ -45,7 +45,7 @@ not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
 
 ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。報告と `-plan` のパスも同じです。
 
-go コマンドと同じくパッケージで絞り込めます。既定は `./...` です。指定したパッケージが読むものを書く task は一緒に実行し、それを読む task は実行しません。
+go コマンドと同じくパッケージで絞り込めます。既定は `./...` です。指定したパッケージが読むものを書く task は一緒に実行し、それを読む task は実行しません。`-tags` は go コマンドと同じくカンマ区切りのビルドタグを受け取ります。そのタグで、どのファイルの `//go:generate` の行を実行するかを選び、各ジェネレータにも渡してパッケージの読み込みに使わせます。
 
 `go tool kanna gen -plan` は、何も実行せず、実行するものとその順序の理由を表示します。
 
@@ -81,6 +81,8 @@ external prerequisites:
 ```yaml
 - run: go tool kanna gen && git add -AN && git diff --exit-code
 ```
+
+環境変数 `KANNA_CHECK=1` は、各ジェネレータと同じく `-check` と同じ動きをします。どちらも `-plan` とは一緒に使えません。
 
 ### 実行するもの、しないもの
 

@@ -33,7 +33,7 @@ const usage = `kanna runs the kanna code generators of a module, in the order th
 and their vets.
 
 Usage:
-  kanna gen [-plan | -check] [packages]
+  kanna gen [-plan | -check] [-tags list] [packages]
   kanna vet [-tags list] [packages]
   kanna -version
 
@@ -45,6 +45,8 @@ Flags of kanna gen:
   -plan   print what would run, in order and why, and run nothing
   -check  compare what is on disk with what would be generated, writing nothing;
           KANNA_CHECK=1 does the same
+  -tags   find the //go:generate lines in the files the comma-separated build
+          tags select, and have each generator load its packages with them
 
 kanna vet runs the vet of each generator the module runs that has one, which
 checks the code calling what the generator writes. The packages default to
@@ -114,6 +116,7 @@ func gen(ctx context.Context, e env, args []string) int {
 	fs.Usage = func() {}
 	showPlan := fs.Bool("plan", false, "")
 	check := fs.Bool("check", false, "")
+	tags := fs.String("tags", "", "")
 
 	err := fs.Parse(args)
 	switch {
@@ -137,6 +140,10 @@ func gen(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return exitUsage
 	}
+	if *showPlan && byEnv {
+		fmt.Fprintf(e.stderr, "kanna gen: -plan and KANNA_CHECK do not go together\n\n%s", usage)
+		return exitUsage
+	}
 
 	// What generators report is by the paths the go command resolves, so the
 	// module has to go by those too.
@@ -145,7 +152,7 @@ func gen(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return run.ExitFailure
 	}
-	p, ctxt, err := makePlan(ctx, dir, fs.Args())
+	p, ctxt, err := makePlan(ctx, dir, fs.Args(), *tags)
 	if err != nil {
 		fmt.Fprintf(e.stderr, "kanna gen: %v\n", err)
 		return run.ExitFailure
@@ -162,7 +169,9 @@ func gen(ctx context.Context, e env, args []string) int {
 	if *showPlan {
 		return run.ExitOK
 	}
-	return run.Run(ctx, p, run.Config{Build: ctxt, Check: *check || byEnv, Out: e.stdout, Err: e.stderr, Dir: dir})
+	return run.Run(ctx, p, run.Config{
+		Build: ctxt, Check: *check || byEnv, Tags: *tags, Out: e.stdout, Err: e.stderr, Dir: dir,
+	})
 }
 
 // vetCommand runs kanna vet with args.
@@ -247,11 +256,17 @@ func flagAmong(patterns []string) (string, bool) {
 }
 
 // makePlan plans a run of what patterns, read from dir, select in the module of
-// dir, and returns it with the build context it is to run with.
-func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, build.Context, error) {
+// dir, with the build tags of a -tags flag, and returns it with the build context
+// it is to run with.
+func makePlan(ctx context.Context, dir string, patterns []string, tags string) (*plan.Plan, build.Context, error) {
 	ctxt, err := goContext(ctx, dir)
 	if err != nil {
 		return nil, build.Context{}, err
+	}
+	if tags != "" {
+		// The generators are given the flag, which takes the place of the tags
+		// of GOFLAGS for them, so it does here too, where the lines are found.
+		ctxt.BuildTags = buildTags(tags)
 	}
 	m, err := module.Find(dir, ctxt)
 	if err != nil {
@@ -262,7 +277,7 @@ func makePlan(ctx context.Context, dir string, patterns []string) (*plan.Plan, b
 		return nil, build.Context{}, fmt.Errorf("read the packages: %w", err)
 	}
 	p, err := plan.Make(ctx, plan.Config{
-		Module: m, Selection: selection, Patterns: patterns, Build: ctxt, Ask: plan.Ask(ctxt),
+		Module: m, Selection: selection, Patterns: patterns, Build: ctxt, Ask: plan.Ask(ctxt, tags),
 	})
 	if err != nil {
 		return nil, build.Context{}, fmt.Errorf("plan: %w", err)

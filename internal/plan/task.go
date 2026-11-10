@@ -62,9 +62,19 @@ func (t *Task) Words(extra ...string) []string {
 // Asker tells what a task reads and writes.
 type Asker func(ctx context.Context, t *Task) (deps.Report, error)
 
+// TagsFlag returns the flag that has a generator load its packages with tags,
+// the comma-separated build tags of kanna gen -tags, or nothing for none.
+func TagsFlag(tags string) []string {
+	if tags == "" {
+		return nil
+	}
+	return []string{"-tags", tags}
+}
+
 // Ask asks the generator of t, which is how what a run reads and writes is
-// known, whatever version of it the module resolves to.
-func Ask(ctxt build.Context) Asker {
+// known, whatever version of it the module resolves to. The generator loads its
+// packages with tags, as TagsFlag gives them.
+func Ask(ctxt build.Context, tags string) Asker {
 	return func(ctx context.Context, t *Task) (deps.Report, error) {
 		for _, arg := range t.Args {
 			if arg == "--" {
@@ -76,7 +86,7 @@ func Ask(ctxt build.Context) Asker {
 			}
 		}
 
-		cmd := t.At[0].Command(ctx, ctxt, t.Words("-deps"))
+		cmd := t.At[0].Command(ctx, ctxt, t.Words(append(TagsFlag(tags), "-deps")...))
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
