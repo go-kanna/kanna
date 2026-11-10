@@ -77,6 +77,15 @@ func whyNot(ctx context.Context, dir, tool, stderr string, err error) error {
 	if strings.Contains(stderr, "no such tool") {
 		return fmt.Errorf("%s is not a tool of this module; add it: %s", tool, plan.GetTool(tool))
 	}
+	if err := plan.NotBuilt(tool, stderr, func(words ...string) string {
+		out, _, err := goCmd(ctx, dir, words...)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(out)
+	}); err != nil {
+		return err //nolint:wrapcheck // says all there is to say
+	}
 	version, _, verr := goTool(ctx, dir, tool, "-version")
 	if verr != nil {
 		return fmt.Errorf("go tool %s vet -version: %w: %s", tool, err, strings.TrimSpace(stderr))
@@ -87,7 +96,11 @@ func whyNot(ctx context.Context, dir, tool, stderr string, err error) error {
 // goTool runs tool through go tool, with args, in dir, and returns what it
 // printed.
 func goTool(ctx context.Context, dir, tool string, args ...string) (stdout, stderr string, err error) {
-	words := append([]string{"tool", tool}, args...)
+	return goCmd(ctx, dir, append([]string{"tool", tool}, args...)...)
+}
+
+// goCmd runs the go command with words in dir, and returns what it printed.
+func goCmd(ctx context.Context, dir string, words ...string) (stdout, stderr string, err error) {
 	cmd := exec.CommandContext(ctx, "go", words...) //nolint:gosec // a generator of the family
 	cmd.Dir = dir
 	var out, errOut strings.Builder

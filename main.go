@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -34,6 +35,7 @@ and their vets.
 Usage:
   kanna gen [-plan | -check] [packages]
   kanna vet [-tags list] [packages]
+  kanna -version
 
 kanna gen runs each //go:generate go tool kanna-* line once, in an order worked
 out from what each reads and writes. The packages default to ./..., and bring
@@ -87,9 +89,22 @@ func command(ctx context.Context, e env, args []string) int {
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(e.stdout, usage)
 		return run.ExitOK
+	case "-version", "--version":
+		fmt.Fprintln(e.stdout, "kanna", buildVersion())
+		return run.ExitOK
 	}
 	fmt.Fprintf(e.stderr, "kanna: unknown command %q\n\n%s", args[0], usage)
 	return exitUsage
+}
+
+// buildVersion is the version the go command stamped into the binary: the
+// module version a go get -tool installed, or a pseudo-version for a build from
+// a checkout.
+func buildVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "unknown"
 }
 
 // gen runs kanna gen with args.

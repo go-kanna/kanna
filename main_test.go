@@ -528,6 +528,49 @@ func TestGen_AGeneratorTooOld(t *testing.T) {
 	contains(t, got.stderr, "kanna-old v0.0.1 is too old", "go get -tool github.com/go-kanna/old/cmd/kanna-old@latest")
 }
 
+// releasedTool writes a module with files and kanna-value v0.0.7 as a tool,
+// which calls what go-kanna/internal v0.0.29, the version the module selects,
+// no longer has, and returns its directory.
+func releasedTool(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	files["internal/go.mod"] = "module github.com/go-kanna/internal\n\ngo 1.26.0\n"
+	files["internal/enum/enum.go"] = "package enum\n\nfunc Constants(name, fset string) {}\n"
+	files["value/go.mod"] = "module github.com/go-kanna/value\n\ngo 1.26.0\n\n" +
+		"require github.com/go-kanna/internal v0.0.15\n"
+	files["value/cmd/kanna-value/main.go"] = "package main\n\n" +
+		"import \"github.com/go-kanna/internal/enum\"\n\nfunc main() { enum.Constants(\"name\") }\n"
+	dir := project(t, files)
+	gomod := "module example.com/m\n\ngo 1.26.0\n\n" +
+		"require (\n\tgithub.com/go-kanna/internal v0.0.29\n\tgithub.com/go-kanna/value v0.0.7\n)\n\n" +
+		"replace github.com/go-kanna/internal => ./internal\n\nreplace github.com/go-kanna/value => ./value\n\n" +
+		"tool github.com/go-kanna/value/cmd/kanna-value\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// A release of a generator that does not build with the go-kanna/internal a
+// newer one brings in says so, rather than what the compiler says.
+func TestGen_AGeneratorThatDoesNotBuild(t *testing.T) {
+	t.Parallel()
+
+	dir := releasedTool(t, map[string]string{"a/a.go": "package a\n\n//go:generate go tool kanna-value\n"})
+
+	got := kanna(t, dir, "gen")
+
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, got.stderr, "a/a.go:3: error: kanna-value v0.0.7 does not build with "+
+		"github.com/go-kanna/internal v0.0.29, which this module selects; "+
+		"update it: go get -tool github.com/go-kanna/value/cmd/kanna-value@latest, or update every tool: go get tool")
+	if strings.Contains(got.stderr, "not enough arguments") {
+		t.Errorf("the compiler's errors are shown:\n%s", got.stderr)
+	}
+}
+
 // A generator newer than this kanna says so, rather than being misread.
 func TestGen_AGeneratorTooNew(t *testing.T) {
 	t.Parallel()
@@ -638,6 +681,7 @@ func TestCommand_Usage(t *testing.T) {
 		{args: []string{"gen", "--nonsense"}, code: exitUsage, says: "-nonsense"},
 		{args: []string{"gen", "./a", "-plan"}, code: exitUsage, says: "flags go before the packages"},
 		{args: []string{"vet", "-h"}, says: "kanna vet [-tags list] [packages]"},
+		{args: []string{"-h"}, says: "kanna -version"},
 		{args: []string{"vet", "--nonsense"}, code: exitUsage, says: "-nonsense"},
 		{args: []string{"vet", "./a", "-tags", "x"}, code: exitUsage, says: "flags go before the packages"},
 	}
@@ -651,6 +695,16 @@ func TestCommand_Usage(t *testing.T) {
 			}
 			contains(t, got.stdout+got.stderr, tt.says)
 		})
+	}
+}
+
+func TestCommand_Version(t *testing.T) {
+	t.Parallel()
+
+	got := kanna(t, t.TempDir(), "-version")
+
+	if got.code != 0 || !strings.HasPrefix(got.stdout, "kanna ") || strings.Count(got.stdout, "\n") != 1 {
+		t.Errorf("%+v", got)
 	}
 }
 

@@ -119,7 +119,42 @@ func whyNot(ctx context.Context, ctxt build.Context, t *Task, stderr string, err
 		return fmt.Errorf("%s cannot run on this machine: go tool builds it for %s/%s, as it does under go generate; "+
 			"generate with the GOOS and GOARCH of this machine", t.Tool, ctxt.GOOS, ctxt.GOARCH)
 	}
+	if err := NotBuilt(t.Tool, stderr, func(words ...string) string {
+		out, err := t.At[0].Command(ctx, ctxt, append([]string{"go"}, words...)).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}); err != nil {
+		return err
+	}
 	return fmt.Errorf("%s -deps: %w: %s", t.Tool, exit, strings.TrimSpace(stderr))
+}
+
+// familyBuild matches the line go tool prints above the errors of a package of
+// the family it cannot build.
+var familyBuild = regexp.MustCompile(`(?m)^# github\.com/go-kanna/`)
+
+// NotBuilt returns why tool cannot run when stderr, what go tool printed, says
+// that the go command cannot build it: a release of a generator does not build
+// with the go-kanna/internal a newer one makes the module select. It returns nil
+// when stderr says otherwise, or the module takes tool from no release, as from
+// a workspace. goCmd runs the go command with words where tool runs and returns
+// what it printed, or nothing when it fails.
+func NotBuilt(tool, stderr string, goCmd func(words ...string) string) error {
+	if !familyBuild.MatchString(stderr) {
+		return nil
+	}
+	version := goCmd("list", "-m", "-f", "{{.Version}}", "github.com/go-kanna/"+strings.TrimPrefix(tool, "kanna-"))
+	if version == "" {
+		return nil
+	}
+	with := "the modules this module selects"
+	if internal := goCmd("list", "-m", "-f", "{{.Version}}", "github.com/go-kanna/internal"); internal != "" {
+		with = "github.com/go-kanna/internal " + internal + ", which this module selects"
+	}
+	return fmt.Errorf("%s %s does not build with %s; update it: %s, or update every tool: go get tool",
+		tool, version, with, GetTool(tool))
 }
 
 // GetTool returns the command that adds tool to a module.
