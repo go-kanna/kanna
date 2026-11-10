@@ -2,6 +2,11 @@
 
 # kanna
 
+[![CI](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml/badge.svg)](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/go-kanna/kanna/graph/badge.svg)](https://codecov.io/gh/go-kanna/kanna)
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-kanna/kanna.svg)](https://pkg.go.dev/github.com/go-kanna/kanna)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/tag/go-kanna/kanna?label=release&sort=semver)](https://github.com/go-kanna/kanna/tags)
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-blue.svg)](README.ja.md)
 
 The `kanna` command runs the [kanna](https://go-kanna.github.io/) family of Go code generators in the order they need,
@@ -12,7 +17,7 @@ working without it.
 ## Install
 
 ```sh
-go get -tool github.com/go-kanna/kanna@latest
+go get -tool github.com/go-kanna/kanna
 ```
 
 Each generator it runs has to be a release that answers `-deps` and builds with the go-kanna/internal the module
@@ -56,6 +61,9 @@ runs, as the go command's do, rather than from the package the generator runs in
 Packages narrow it down, as for the go command. `./...` is the default. The packages bring along what writes what they
 read, and not what reads them. `-tags` takes comma-separated build tags, as the go command's does: they choose the files
 whose `//go:generate` lines run, and go to each generator, which loads its packages with them.
+
+`kanna gen` and `kanna vet` work on the module holding the directory they run in. At the root of a `go.work` workspace,
+which is no module itself, they find none: run them in each module of the workspace, from inside it.
 
 `go tool kanna gen -plan` prints what would run, and why in that order, running nothing:
 
