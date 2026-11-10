@@ -41,17 +41,21 @@ $ go tool kanna gen
 11 tasks, 2 files changed
 ```
 
-With nothing to do it says `11 tasks, 0 files changed`, and no more. The first task to fail stops the run, and what the
-tasks before it wrote stays:
+With nothing to do it says `11 tasks, 0 files changed`, and no more. A task that fails stops the tasks that come after
+it, as `-plan` shows with `after:`, directly or through others. The report marks each of those `not run`, with the
+failed tasks it waits for. The other tasks run all the same, as `go build` goes on with the packages that do not import
+a broken one, so one run shows every failure, and then exits with 1. What the tasks wrote stays in the working tree,
+including what a failed task wrote halfway:
 
 ```text
-completed    internal/feature/todo/model/todo_model.go:15    kanna-value   wrote internal/feature/todo/model/value_gen.go
-failed       internal/feature/todo/mapper/todo_mapper.go:10  kanna-mapper
+completed    internal/feature/todo/model/todo_model.go:15      kanna-value   wrote internal/feature/todo/model/value_gen.go
+failed       internal/feature/todo/mapper/todo_mapper.go:10    kanna-mapper
   internal/feature/todo/mapper/todo_mapper.go:32:13: error: cannot use "x" (untyped string constant) as int value in …
-not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
+not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di      after failed internal/feature/todo/mapper/todo_mapper.go:10
+completed    internal/messages/generate.go:3                   kanna-i18n    wrote internal/messages/i18n_gen.go
 
-1 completed, 1 failed, 1 not run
-1 file changed; completed changes remain in the working tree
+2 completed, 1 failed, 1 not run
+2 files changed; completed changes remain in the working tree
 ```
 
 What a generator says goes to stderr, below its task, and the report to stdout. Its paths lead from where `kanna gen`
