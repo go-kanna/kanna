@@ -104,6 +104,11 @@ func Make(ctx context.Context, cfg Config) (*Plan, error) {
 		}
 	}
 	p.Problems = append(p.Problems, slices.SortedFunc(maps.Values(failed), byPosition)...)
+	for _, a := range cfg.Selection.Absent {
+		if !g.writesInto(a.Dir) {
+			p.Problems = append(p.Problems, diag.Errorf(token.Position{}, "pattern %s: directory not found", a.Pattern))
+		}
+	}
 	if len(cfg.Patterns) > 0 && len(chosen) == 0 && len(p.Problems) == 0 {
 		p.Problems = append(p.Problems, diag.Errorf(token.Position{},
 			"no //go:generate go tool kanna-* line matches %s", strings.Join(cfg.Patterns, " ")))

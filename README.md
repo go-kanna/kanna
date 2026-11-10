@@ -103,10 +103,11 @@ A task is one `//go:generate go tool kanna-*` line, run as `go generate` runs it
 runs once, with a warning at each line after the first, which `go generate` would run again for nothing.
 
 Before starting, it refuses a plan with tasks waiting for each other, two tasks writing one file, an input that is not
-there, or a line that means to run a generator some other way: a `-command` alias, a shell, another executable,
-`kanna-orm describe`, or the `vet` of a generator, such as `kanna-value vet`, which checks code and writes nothing, and
-which `kanna vet` runs. Other generators' lines it leaves alone, so what buf or sqlc write has to be there first, and is
-theirs to check.
+there, or a line that means to run a generator some other way: a `-command` alias, a shell, another executable, the
+package path in place of the name, such as `go tool github.com/go-kanna/value/cmd/kanna-value` for `go tool
+kanna-value`, `kanna-orm describe`, or the `vet` of a generator, such as `kanna-value vet`, which checks code and writes
+nothing, and which `kanna vet` runs. Other generators' lines it leaves alone, so what buf or sqlc write has to be there
+first, and is theirs to check.
 
 It warns about a `//kanna:` line whose key no generator of the family has, such as `//kanna:di` for `//kanna:container`,
 which each generator passes over and none can tell for the others. A line of a generator's own key it leaves to that

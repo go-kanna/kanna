@@ -363,7 +363,7 @@ func TestFind_BadGoMod(t *testing.T) {
 func TestModule_Select(t *testing.T) {
 	t.Parallel()
 
-	dir := write(t, map[string]string{"a/b/b.go": "package b\n"})
+	dir := write(t, map[string]string{"a/b/b.go": "package b\n", "c/c.go": "package c\n"})
 	m := find(t, dir)
 	a, b, c := filepath.Join(dir, "a"), filepath.Join(dir, "a", "b"), filepath.Join(dir, "c")
 
@@ -395,12 +395,45 @@ func TestModule_Select(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if len(s.Absent) > 0 {
+				t.Errorf("Absent = %v", s.Absent)
+			}
 			for _, d := range []string{dir, a, b, c} {
 				if got, want := s.Matches(d), slices.Contains(tt.want, d); got != want {
 					t.Errorf("Matches(%s) = %v, want %v", d, got, want)
 				}
 			}
 		})
+	}
+}
+
+func TestModule_Select_Absent(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{"a/a.go": "package a\n"})
+	m := find(t, dir)
+
+	s, err := m.Select(dir, []string{"./a", "./none", "example.com/m/gone", "./none/..."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []module.AbsentDir{
+		{Pattern: "./none", Dir: filepath.Join(dir, "none")},
+		{Pattern: "example.com/m/gone", Dir: filepath.Join(dir, "gone")},
+	}
+	if !slices.Equal(s.Absent, want) {
+		t.Errorf("Absent = %v, want %v", s.Absent, want)
+	}
+	if !s.Matches(filepath.Join(dir, "none")) {
+		t.Error("an absent directory is not matched, for what writes into it")
+	}
+
+	if err := module.MissingDir(dir, []string{"./a", "example.com/m/gone", "./x/...", "./none"}); err == nil ||
+		err.Error() != "pattern ./none: directory not found" {
+		t.Errorf("MissingDir() = %v", err)
+	}
+	if err := module.MissingDir(dir, []string{"./a", dir}); err != nil {
+		t.Errorf("MissingDir() = %v", err)
 	}
 }
 

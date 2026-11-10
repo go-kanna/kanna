@@ -1,7 +1,9 @@
 package module
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -13,6 +15,15 @@ import (
 // module they match.
 type Selection struct {
 	roots []func(dir string) bool
+
+	// Absent holds the patterns that name one directory, which is not there.
+	Absent []AbsentDir
+}
+
+// AbsentDir is a directory a pattern names that is not there, which it may be
+// once what writes into it has run.
+type AbsentDir struct {
+	Pattern, Dir string
 }
 
 // Select reads patterns as the go command does, from the directory cwd: paths,
@@ -31,6 +42,11 @@ func (m *Module) Select(cwd string, patterns []string) (Selection, error) {
 			return Selection{}, fmt.Errorf("pattern %s: %w", pattern, err)
 		}
 		s.roots = append(s.roots, match)
+		if !strings.Contains(pattern, "...") {
+			if dir, _ := m.resolve(cwd, pattern); dirThere(dir) != nil {
+				s.Absent = append(s.Absent, AbsentDir{Pattern: pattern, Dir: dir})
+			}
+		}
 	}
 	return s, nil
 }
@@ -103,6 +119,31 @@ func (m *Module) within(dir string) (string, error) {
 		return "", fmt.Errorf("not in the module %s", m.Path)
 	}
 	return dir, nil
+}
+
+// MissingDir returns an error naming the first of patterns, read from cwd,
+// that is a path with no ... in it and names no directory.
+func MissingDir(cwd string, patterns []string) error {
+	for _, pattern := range patterns {
+		if !isPath(pattern) || strings.Contains(pattern, "...") {
+			continue
+		}
+		dir := pattern
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, filepath.FromSlash(dir))
+		}
+		if err := dirThere(dir); err != nil {
+			return fmt.Errorf("pattern %s: %w", pattern, err)
+		}
+	}
+	return nil
+}
+
+func dirThere(dir string) error {
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return errors.New("directory not found")
+	}
+	return nil
 }
 
 // Matches reports whether dir is selected.

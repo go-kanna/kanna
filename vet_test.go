@@ -183,6 +183,22 @@ func TestVet_FromBelowTheRoot(t *testing.T) {
 	logged(t, filepath.Join(dir, "b"), "kanna-value .", "kanna-i18n .")
 }
 
+// A directory that is not there is said once, before any vet runs.
+func TestVet_NoDirectory(t *testing.T) {
+	t.Parallel()
+
+	dir := vetProject(t, vetLines(), map[string]string{"kanna-value": fakeVet, "kanna-i18n": fakeVet})
+
+	got := kanna(t, dir, "vet", "./a", "./nothing")
+
+	if got != (outcome{code: 1, stderr: "kanna vet: pattern ./nothing: directory not found\n"}) {
+		t.Errorf("%+v", got)
+	}
+	if exists(filepath.Join(dir, "vet.log")) {
+		t.Error("a vet ran")
+	}
+}
+
 func TestVet_NoGeneratorWithAVet(t *testing.T) {
 	t.Parallel()
 

@@ -701,11 +701,21 @@ func TestGen_Patterns(t *testing.T) {
 		t.Error("what reads the package was run")
 	}
 
-	got = kanna(t, dir, "gen", "./nothing")
+	if err := os.Mkdir(filepath.Join(dir, "empty"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	got = kanna(t, dir, "gen", "./empty")
 	if got.code != 1 {
 		t.Errorf("%+v", got)
 	}
-	contains(t, got.stderr, "no //go:generate go tool kanna-* line matches ./nothing")
+	contains(t, got.stderr, "no //go:generate go tool kanna-* line matches ./empty")
+
+	for _, pattern := range []string{"./nothing", "example.com/m/nothing"} {
+		got = kanna(t, dir, "gen", pattern)
+		if got.code != 1 || got.stderr != "error: pattern "+pattern+": directory not found\n" {
+			t.Errorf("%s: %+v", pattern, got)
+		}
+	}
 }
 
 func TestGen_FromBelowTheRoot(t *testing.T) {

@@ -517,6 +517,9 @@ func TestMake_LinesItDoesNotRun(t *testing.T) {
 		{"go tool kanna gen", notRun},
 		{"go tool -n kanna-value", notRun},
 		{"kanna-value \"oops", unread},
+		{"go tool github.com/go-kanna/value/cmd/kanna-value", "write go tool kanna-value in place of " +
+			"go tool github.com/go-kanna/value/cmd/kanna-value"},
+		{"go tool github.com/go-kanna/orm/cmd/kanna-orm describe", "leaves out a -command alias"},
 	} {
 		t.Run(tt.line, func(t *testing.T) {
 			t.Parallel()
@@ -659,7 +662,11 @@ func TestMake_Patterns(t *testing.T) {
 	wantOrder(t, makePlan(t, dir, a, "./mid"), "low/l.go:3 kanna-value", "mid/m.go:5 kanna-validator")
 	// A package holding output is matched by what writes it.
 	wantOrder(t, makePlan(t, dir, a, "./out"), "src/s.go:3 kanna-fixture")
-	wantProblem(t, makePlan(t, dir, a, "./none"), "no //go:generate go tool kanna-* line matches ./none")
+	wantProblem(t, makePlan(t, dir, a, "./bad", "./none"), "pattern ./none: directory not found")
+	if err := os.Mkdir(filepath.Join(dir, "empty"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, makePlan(t, dir, a, "./empty"), "no //go:generate go tool kanna-* line matches ./empty")
 	wantProblem(t, makePlan(t, dir, a, "./bad"), "bad/b.go:3")
 }
 

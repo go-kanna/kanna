@@ -215,6 +215,10 @@ func vetCommand(ctx context.Context, e env, args []string) int {
 		fmt.Fprintf(e.stderr, "kanna vet: find the module: %v\n", err)
 		return run.ExitFailure
 	}
+	if err := module.MissingDir(dir, fs.Args()); err != nil {
+		fmt.Fprintf(e.stderr, "kanna vet: %v\n", err)
+		return run.ExitFailure
+	}
 
 	vets := vet.Of(m, ctxt)
 	if len(vets) == 0 {

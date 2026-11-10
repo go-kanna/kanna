@@ -306,6 +306,13 @@ func (g *graph) matches(t *Task, selection module.Selection) bool {
 	return slices.ContainsFunc(t.Report.Writes, func(w string) bool { return selection.Matches(filepath.Dir(w)) })
 }
 
+// writesInto reports whether a task writes into dir.
+func (g *graph) writesInto(dir string) bool {
+	return slices.ContainsFunc(g.tasks, func(t *Task) bool {
+		return slices.ContainsFunc(t.Report.Writes, func(w string) bool { return filepath.Dir(w) == dir })
+	})
+}
+
 // edgesAmong returns the edges between tasks.
 func (g *graph) edgesAmong(tasks []*Task) []Edge {
 	return slices.DeleteFunc(slices.Clone(g.edges), func(e Edge) bool {
