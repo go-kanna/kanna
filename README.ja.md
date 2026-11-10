@@ -2,6 +2,11 @@
 
 # kanna
 
+[![CI](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml/badge.svg)](https://github.com/go-kanna/kanna/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/go-kanna/kanna/graph/badge.svg)](https://codecov.io/gh/go-kanna/kanna)
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-kanna/kanna.svg)](https://pkg.go.dev/github.com/go-kanna/kanna)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/tag/go-kanna/kanna?label=release&sort=semver)](https://github.com/go-kanna/kanna/tags)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 
 `kanna` コマンドは、[kanna](https://go-kanna.github.io/ja/) コードジェネレータファミリーを、必要な順序で実行します。パッケージの一覧をプロジェクトで持つ必要がなくなります。vet のあるジェネレータの vet もまとめて実行するので、その一覧も要りません。設定は増えません。実行するのは、すでにある `//go:generate go tool kanna-*` の行です。各ジェネレータは、このコマンドがなくても今までどおり動きます。
@@ -9,7 +14,7 @@
 ## インストール
 
 ```sh
-go get -tool github.com/go-kanna/kanna@latest
+go get -tool github.com/go-kanna/kanna
 ```
 
 実行するジェネレータは、`-deps` に答えられ、モジュールが選ぶ go-kanna/internal でビルドできるリリースである必要があります。そうでないものがあれば `kanna gen` と `kanna vet` が伝えます。選ばれる go-kanna/internal は、新しい kanna やジェネレータを入れると上がることがあります。モジュールのツールをまとめて上げるには、次のようにします。
@@ -43,9 +48,11 @@ not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
 1 file changed; completed changes remain in the working tree
 ```
 
-ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。
+ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。報告と `-plan` のパスも同じです。
 
-go コマンドと同じくパッケージで絞り込めます。既定は `./...` です。指定したパッケージが読むものを書く task は一緒に実行し、それを読む task は実行しません。
+go コマンドと同じくパッケージで絞り込めます。既定は `./...` です。指定したパッケージが読むものを書く task は一緒に実行し、それを読む task は実行しません。`-tags` は go コマンドと同じくカンマ区切りのビルドタグを受け取ります。そのタグで、どのファイルの `//go:generate` の行を実行するかを選び、各ジェネレータにも渡してパッケージの読み込みに使わせます。
+
+`kanna gen` と `kanna vet` は、実行した場所を含むモジュールを対象にします。それ自体はモジュールでない `go.work` のワークスペースのルートでは、モジュールが見つかりません。ワークスペースのモジュールごとに、そのモジュールの中で実行してください。
 
 `go tool kanna gen -plan` は、何も実行せず、実行するものとその順序の理由を表示します。
 
@@ -82,11 +89,13 @@ external prerequisites:
 - run: go tool kanna gen && git add -AN && git diff --exit-code
 ```
 
+環境変数 `KANNA_CHECK=1` は、各ジェネレータと同じく `-check` と同じ動きをします。どちらも `-plan` とは一緒に使えません。
+
 ### 実行するもの、しないもの
 
 task は `//go:generate go tool kanna-*` の一行で、`go generate` と同じように実行します。パッケージのディレクトリで、`GOFILE` などの環境変数付きで実行し、行の引用符や `$` の変数も同じように読みます。同じパッケージに同じ行が二つあれば、一回だけ実行し、二つ目以降の行で警告します。`go generate` なら、無駄にもう一度実行するからです。
 
-次の計画は、開始する前に拒否します。task が互いを待っているもの、二つの task が同じファイルを書くもの、入力が存在しないもの、そしてジェネレータを別の形で実行しようとする行があるものです。別の形とは、`-command` エイリアス、シェル、別の実行ファイル、`kanna-orm describe`、`kanna-value vet` などのジェネレータの `vet` です。vet はコードを検査するだけで何も書かず、`kanna vet` が実行します。他のジェネレータの行には触れません。buf や sqlc が書くものは先に用意しておく必要があり、その検査もそれぞれのツールの役目です。
+次の計画は、開始する前に拒否します。task が互いを待っているもの、二つの task が同じファイルを書くもの、入力が存在しないもの、そしてジェネレータを別の形で実行しようとする行があるものです。別の形とは、`-command` エイリアス、シェル、別の実行ファイル、名前の代わりのパッケージのパス（`go tool kanna-value` の代わりの `go tool github.com/go-kanna/value/cmd/kanna-value`）、`kanna-orm describe`、`kanna-value vet` などのジェネレータの `vet` です。vet はコードを検査するだけで何も書かず、`kanna vet` が実行します。他のジェネレータの行には触れません。buf や sqlc が書くものは先に用意しておく必要があり、その検査もそれぞれのツールの役目です。
 
 kanna ファミリーのどのジェネレータのキーでもない `//kanna:` の行（`//kanna:container` のつもりの `//kanna:di` など）は警告します。どのジェネレータも読み飛ばし、ほかのジェネレータの分まで知らせることはできないからです。あるジェネレータのキーの行は、そのジェネレータに任せます。宣言に付いていない行と、キーの打ち間違いは、そのジェネレータが警告します:
 

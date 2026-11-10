@@ -38,6 +38,10 @@ type Config struct {
 	// nothing.
 	Check bool
 
+	// Tags holds the comma-separated build tags the generators load their
+	// packages with.
+	Tags string
+
 	// Out receives the report, and Err what the generators print, below the
 	// task that printed it.
 	Out, Err io.Writer
@@ -142,7 +146,7 @@ func withCause(output string, err error) string {
 // runTask runs t and returns what it printed.
 func runTask(ctx context.Context, t *plan.Task, cfg Config) (string, error) {
 	d := t.At[0]
-	cmd := d.Command(ctx, cfg.Build, t.Words())
+	cmd := d.Command(ctx, cfg.Build, t.Words(plan.TagsFlag(cfg.Tags)...))
 
 	pending, err := pendingFile(t)
 	if err != nil {

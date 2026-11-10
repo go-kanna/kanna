@@ -162,6 +162,33 @@ func TestMake_ImportsDecideTheOrder(t *testing.T) {
 	}
 }
 
+// The tasks a task comes after are listed by number, not by where they are.
+func TestMake_AfterInTheOrderOfTheTasks(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{
+		"a/a.go": "package a\n\nimport _ \"example.com/m/z\"\n\n//go:generate go tool kanna-value\n",
+		"m/m.go": "package m\n\nimport (\n\t_ \"example.com/m/a\"\n\t_ \"example.com/m/q\"\n)\n\n" +
+			"//go:generate go tool kanna-validator\n",
+		"q/q.go": "package q\n\n//go:generate go tool kanna-value\n",
+		"z/z.go": "package z\n\n//go:generate go tool kanna-value\n",
+	})
+
+	p := makePlan(t, dir, answers{
+		"a kanna-value":     {Packages: []string{"a"}, Writes: []string{"a/value_gen.go"}},
+		"m kanna-validator": {Packages: []string{"m"}, Writes: []string{"m/validator_gen.go"}},
+		"q kanna-value":     {Packages: []string{"q"}, Writes: []string{"q/value_gen.go"}},
+		"z kanna-value":     {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
+	})
+
+	wantOrder(t, p, "q/q.go:3 kanna-value", "z/z.go:3 kanna-value", "a/a.go:5 kanna-value", "m/m.go:8 kanna-validator")
+	want := "   after:  1 — reads q, which kanna-value writes into\n" +
+		"   after:  3 — reads a, which kanna-value writes into\n"
+	if got := written(p); !strings.HasSuffix(got, want) {
+		t.Errorf("Write() =\n%s\nwant it to end with\n%s", got, want)
+	}
+}
+
 func TestMake_WithoutADependencyTheModulesOrderStands(t *testing.T) {
 	t.Parallel()
 
@@ -517,6 +544,9 @@ func TestMake_LinesItDoesNotRun(t *testing.T) {
 		{"go tool kanna gen", notRun},
 		{"go tool -n kanna-value", notRun},
 		{"kanna-value \"oops", unread},
+		{"go tool github.com/go-kanna/value/cmd/kanna-value", "write go tool kanna-value in place of " +
+			"go tool github.com/go-kanna/value/cmd/kanna-value"},
+		{"go tool github.com/go-kanna/orm/cmd/kanna-orm describe", "leaves out a -command alias"},
 	} {
 		t.Run(tt.line, func(t *testing.T) {
 			t.Parallel()
@@ -659,7 +689,11 @@ func TestMake_Patterns(t *testing.T) {
 	wantOrder(t, makePlan(t, dir, a, "./mid"), "low/l.go:3 kanna-value", "mid/m.go:5 kanna-validator")
 	// A package holding output is matched by what writes it.
 	wantOrder(t, makePlan(t, dir, a, "./out"), "src/s.go:3 kanna-fixture")
-	wantProblem(t, makePlan(t, dir, a, "./none"), "no //go:generate go tool kanna-* line matches ./none")
+	wantProblem(t, makePlan(t, dir, a, "./bad", "./none"), "pattern ./none: directory not found")
+	if err := os.Mkdir(filepath.Join(dir, "empty"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, makePlan(t, dir, a, "./empty"), "no //go:generate go tool kanna-* line matches ./empty")
 	wantProblem(t, makePlan(t, dir, a, "./bad"), "bad/b.go:3")
 }
 
@@ -709,7 +743,7 @@ func TestAsk_NoSuchTool(t *testing.T) {
 	ctxt := build.Default
 	ctxt.GOROOT = goroot(t)
 	p, err := plan.Make(t.Context(), plan.Config{
-		Module: m, Selection: selection, Build: ctxt, Ask: plan.Ask(ctxt),
+		Module: m, Selection: selection, Build: ctxt, Ask: plan.Ask(ctxt, ""),
 	})
 	if err != nil {
 		t.Fatal(err)

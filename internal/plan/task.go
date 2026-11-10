@@ -8,6 +8,7 @@ import (
 	"go/build"
 	"go/token"
 	"os/exec"
+	"path"
 	"regexp"
 	"runtime"
 	"slices"
@@ -62,9 +63,19 @@ func (t *Task) Words(extra ...string) []string {
 // Asker tells what a task reads and writes.
 type Asker func(ctx context.Context, t *Task) (deps.Report, error)
 
+// TagsFlag returns the flag that has a generator load its packages with tags,
+// the comma-separated build tags of kanna gen -tags, or nothing for none.
+func TagsFlag(tags string) []string {
+	if tags == "" {
+		return nil
+	}
+	return []string{"-tags", tags}
+}
+
 // Ask asks the generator of t, which is how what a run reads and writes is
-// known, whatever version of it the module resolves to.
-func Ask(ctxt build.Context) Asker {
+// known, whatever version of it the module resolves to. The generator loads its
+// packages with tags, as TagsFlag gives them.
+func Ask(ctxt build.Context, tags string) Asker {
 	return func(ctx context.Context, t *Task) (deps.Report, error) {
 		for _, arg := range t.Args {
 			if arg == "--" {
@@ -76,7 +87,7 @@ func Ask(ctxt build.Context) Asker {
 			}
 		}
 
-		cmd := t.At[0].Command(ctx, ctxt, t.Words("-deps"))
+		cmd := t.At[0].Command(ctx, ctxt, t.Words(append(TagsFlag(tags), "-deps")...))
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
@@ -186,7 +197,7 @@ func tasksOf(m *module.Module, ctxt build.Context) ([]*Task, []located) {
 			continue
 		case !isGeneration(words):
 			if mentionsKanna.MatchString(d.Text) {
-				problems = append(problems, unsupported(d))
+				problems = append(problems, unsupported(d, words))
 			}
 			continue
 		}
@@ -232,8 +243,16 @@ func atLine(d generate.Directive, format string, args ...any) located {
 	return located{directive: d, diag: diag.Errorf(positionOf(d), format, args...)}
 }
 
-func unsupported(d generate.Directive) located {
+func unsupported(d generate.Directive, words []string) located {
 	l := atLine(d, "kanna gen does not run this line: %s", d.Text)
+	if len(words) >= 3 && words[0] == "go" && words[1] == "tool" && strings.Contains(words[2], "/") {
+		name := path.Base(words[2])
+		if isGeneration(slices.Concat([]string{"go", "tool", name}, words[3:])) {
+			l.diag = l.diag.WithHints(fmt.Sprintf("it tells a generator by its name: write go tool %s in place of go tool %s",
+				name, words[2]))
+			return l
+		}
+	}
 	l.diag = l.diag.WithHints("it runs //go:generate go tool kanna-* lines, and leaves out a -command alias, " +
 		"a shell, another executable, kanna-orm describe, and the vet of a generator")
 	return l
