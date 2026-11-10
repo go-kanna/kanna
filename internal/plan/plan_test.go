@@ -162,6 +162,33 @@ func TestMake_ImportsDecideTheOrder(t *testing.T) {
 	}
 }
 
+// The tasks a task comes after are listed by number, not by where they are.
+func TestMake_AfterInTheOrderOfTheTasks(t *testing.T) {
+	t.Parallel()
+
+	dir := write(t, map[string]string{
+		"a/a.go": "package a\n\nimport _ \"example.com/m/z\"\n\n//go:generate go tool kanna-value\n",
+		"m/m.go": "package m\n\nimport (\n\t_ \"example.com/m/a\"\n\t_ \"example.com/m/q\"\n)\n\n" +
+			"//go:generate go tool kanna-validator\n",
+		"q/q.go": "package q\n\n//go:generate go tool kanna-value\n",
+		"z/z.go": "package z\n\n//go:generate go tool kanna-value\n",
+	})
+
+	p := makePlan(t, dir, answers{
+		"a kanna-value":     {Packages: []string{"a"}, Writes: []string{"a/value_gen.go"}},
+		"m kanna-validator": {Packages: []string{"m"}, Writes: []string{"m/validator_gen.go"}},
+		"q kanna-value":     {Packages: []string{"q"}, Writes: []string{"q/value_gen.go"}},
+		"z kanna-value":     {Packages: []string{"z"}, Writes: []string{"z/value_gen.go"}},
+	})
+
+	wantOrder(t, p, "q/q.go:3 kanna-value", "z/z.go:3 kanna-value", "a/a.go:5 kanna-value", "m/m.go:8 kanna-validator")
+	want := "   after:  1 — reads q, which kanna-value writes into\n" +
+		"   after:  3 — reads a, which kanna-value writes into\n"
+	if got := written(p); !strings.HasSuffix(got, want) {
+		t.Errorf("Write() =\n%s\nwant it to end with\n%s", got, want)
+	}
+}
+
 func TestMake_WithoutADependencyTheModulesOrderStands(t *testing.T) {
 	t.Parallel()
 

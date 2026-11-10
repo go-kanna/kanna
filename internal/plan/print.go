@@ -28,7 +28,7 @@ func (p *Plan) Write(w io.Writer) {
 		for _, file := range t.Report.Writes {
 			line(w, "writes:", p.Module.Rel(file))
 		}
-		for _, e := range shown(t) {
+		for _, e := range shown(t, number) {
 			line(w, "after:", fmt.Sprintf("%d — %s", number[e.From], e.Reason(p.Module)))
 		}
 		for _, e := range t.Ahead {
@@ -57,9 +57,10 @@ func line(w io.Writer, label, text string) {
 	fmt.Fprintf(w, "   %-7s %s\n", label, text)
 }
 
-// shown returns the edges of t worth reading: one for each task it comes after,
-// leaving out those that another of them comes after anyway.
-func shown(t *Task) []Edge {
+// shown returns the edges of t worth reading, in the order of the tasks they
+// come from, by number: one for each task it comes after, leaving out those that
+// another of them comes after anyway.
+func shown(t *Task, number map[*Task]int) []Edge {
 	best := make(map[*Task]Edge, len(t.After))
 	for _, e := range t.After {
 		if prev, ok := best[e.From]; !ok || e.Kind < prev.Kind {
@@ -76,12 +77,7 @@ func shown(t *Task) []Edge {
 			edges = append(edges, e)
 		}
 	}
-	slices.SortFunc(edges, func(a, b Edge) int {
-		return cmp.Or(
-			strings.Compare(a.From.At[0].File, b.From.At[0].File),
-			cmp.Compare(a.From.At[0].Line, b.From.At[0].Line),
-		)
-	})
+	slices.SortFunc(edges, func(a, b Edge) int { return cmp.Compare(number[a.From], number[b.From]) })
 	return edges
 }
 
