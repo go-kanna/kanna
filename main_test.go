@@ -279,11 +279,16 @@ func TestGen_ShowsWhatAGeneratorSays(t *testing.T) {
 	contains(t, got.stderr, "  warning: nothing is marked\n")
 }
 
-// The second task fails: what the report says is what is in the tree.
-func TestGen_StopsAtTheFirstFailure(t *testing.T) {
+// The second task fails: what comes after it, through any task between, does
+// not run, and what does not comes after it runs all the same. What the report
+// says is what is in the tree.
+func TestGen_GoesOnPastAFailure(t *testing.T) {
 	t.Parallel()
 
-	dir := project(t, chain("-fail"))
+	files := chain("-fail")
+	files["d/d.go"] = "package d\n\nimport _ \"example.com/m/a\"\n\n//go:generate go tool kanna-fake -out d_gen.go\n"
+	files["z/z.go"] = "package z\n\n//go:generate go tool kanna-fake -out z_gen.go\n"
+	dir := project(t, files)
 
 	got := kanna(t, dir, "gen")
 
@@ -292,9 +297,11 @@ func TestGen_StopsAtTheFirstFailure(t *testing.T) {
 	}
 	want := "completed    c/c.go:3  kanna-fake  wrote c/c_gen.go\n" +
 		"failed       b/b.go:5  kanna-fake  wrote b/half_gen.go\n" +
-		"not run      a/a.go:5  kanna-fake\n" +
-		"\n1 completed, 1 failed, 1 not run\n" +
-		"2 files changed; completed changes remain in the working tree\n"
+		"not run      a/a.go:5  kanna-fake  after failed b/b.go:5\n" +
+		"not run      d/d.go:5  kanna-fake  after failed b/b.go:5\n" +
+		"completed    z/z.go:3  kanna-fake  wrote z/z_gen.go\n" +
+		"\n2 completed, 1 failed, 2 not run\n" +
+		"3 files changed; completed changes remain in the working tree\n"
 	if got.stdout != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", got.stdout, want)
 	}
@@ -302,11 +309,41 @@ func TestGen_StopsAtTheFirstFailure(t *testing.T) {
 	if want := "  ./a.go:1:1: error: it cannot be done\n"; got.stderr != want {
 		t.Errorf("stderr = %q, want %q", got.stderr, want)
 	}
-	if !exists(filepath.Join(dir, "c", "c_gen.go")) || !exists(filepath.Join(dir, "b", "half_gen.go")) {
-		t.Error("what completed is not in the tree")
+	for _, file := range []string{"c/c_gen.go", "b/half_gen.go", "z/z_gen.go"} {
+		if !exists(filepath.Join(dir, file)) {
+			t.Errorf("%s, which completed, is not in the tree", file)
+		}
 	}
-	if exists(filepath.Join(dir, "a", "a_gen.go")) {
-		t.Error("the task after the failure ran")
+	for _, file := range []string{"a/a_gen.go", "d/d_gen.go"} {
+		if exists(filepath.Join(dir, file)) {
+			t.Errorf("%s was written by a task after the failure", file)
+		}
+	}
+}
+
+// Each failure is told, and a task after two of them names both.
+func TestGen_ReportsEveryFailure(t *testing.T) {
+	t.Parallel()
+
+	dir := project(t, map[string]string{
+		"a/a.go": "package a\n\nimport (\n\t_ \"example.com/m/b\"\n\t_ \"example.com/m/c\"\n)\n\n" +
+			"//go:generate go tool kanna-fake -out a_gen.go\n",
+		"b/b.go": "package b\n\n//go:generate go tool kanna-fake -fail -out b_gen.go\n",
+		"c/c.go": "package c\n\n//go:generate go tool kanna-fake -fail -out c_gen.go\n",
+	})
+
+	got := kanna(t, dir, "gen")
+
+	if got.code != 1 {
+		t.Fatalf("%+v", got)
+	}
+	contains(t, flat(got.stdout),
+		"failed b/b.go:3 kanna-fake wrote b/half_gen.go\n",
+		"failed c/c.go:3 kanna-fake wrote c/half_gen.go\n",
+		"not run a/a.go:8 kanna-fake after failed b/b.go:3, c/c.go:3\n",
+		"0 completed, 2 failed, 1 not run\n")
+	if n := strings.Count(got.stderr, "error: it cannot be done"); n != 2 {
+		t.Errorf("stderr tells %d failures, want 2:\n%s", n, got.stderr)
 	}
 }
 
@@ -421,7 +458,7 @@ func TestGen_CheckFindsADifference(t *testing.T) {
 	contains(t, flat(got.stdout),
 		"up to date c/c.go:3 kanna-fake\n",
 		"failed b/b.go:5 kanna-fake\n",
-		"not checked a/a.go:5 kanna-fake\n",
+		"not checked a/a.go:5 kanna-fake after failed b/b.go:5\n",
 		"up to date z/z.go:3 kanna-fake\n",
 		"2 up to date, 1 failed, 1 not checked\n")
 	contains(t, got.stderr, "./b_gen.go: error: out of date; run go generate\n")

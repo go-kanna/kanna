@@ -36,16 +36,17 @@ $ go tool kanna gen
 11 tasks, 2 files changed
 ```
 
-何もすることがなければ `11 tasks, 0 files changed` の一行だけです。最初に失敗した task で止まり、それより前の task が書いたものは残ります。
+何もすることがなければ `11 tasks, 0 files changed` の一行だけです。task が失敗すると、その task の後に実行する task だけを止めます。後に実行する task とは、`-plan` が `after:` で示すつながりを、直接または間接にたどれる task です。止めた task は表に `not run` と出し、待っていた失敗した task を添えます。ほかの task は、`go build` が壊れたパッケージを import しないパッケージのビルドを続けるのと同じく、そのまま実行します。そのため、1 回の実行ですべての失敗が分かります。終了コードは 1 です。task が書いたものは、失敗した task が途中まで書いたものも含めて、作業ツリーに残ります。
 
 ```text
-completed    internal/feature/todo/model/todo_model.go:15    kanna-value   wrote internal/feature/todo/model/value_gen.go
-failed       internal/feature/todo/mapper/todo_mapper.go:10  kanna-mapper
+completed    internal/feature/todo/model/todo_model.go:15      kanna-value   wrote internal/feature/todo/model/value_gen.go
+failed       internal/feature/todo/mapper/todo_mapper.go:10    kanna-mapper
   internal/feature/todo/mapper/todo_mapper.go:32:13: error: cannot use "x" (untyped string constant) as int value in …
-not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di
+not run      internal/feature/todo/handler/todo_handler.go:15  kanna-di      after failed internal/feature/todo/mapper/todo_mapper.go:10
+completed    internal/messages/generate.go:3                   kanna-i18n    wrote internal/messages/i18n_gen.go
 
-1 completed, 1 failed, 1 not run
-1 file changed; completed changes remain in the working tree
+2 completed, 1 failed, 1 not run
+2 files changed; completed changes remain in the working tree
 ```
 
 ジェネレータが表示するものは、その task の行の下に stderr へ出し、報告は stdout に出します。そのパスは、ジェネレータが動くパッケージからではなく、go コマンドと同じく `kanna gen` を実行した場所から辿れる形です。報告と `-plan` のパスも同じです。

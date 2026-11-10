@@ -66,6 +66,9 @@ type result struct {
 	state   state
 	changes []change
 	output  string
+
+	// after holds the failed tasks a skipped one comes after.
+	after []*plan.Task
 }
 
 // change is a file a task changed.
@@ -76,63 +79,78 @@ type change struct {
 
 // Run runs p, which has to be free of Problems, and returns the code to exit
 // with.
+//
+// A task that fails stops only what comes after it, through any tasks between,
+// as go build does a package: the rest still runs, and the report tells every
+// failure at once.
 func Run(ctx context.Context, p *plan.Plan, cfg Config) int {
-	if cfg.Check {
-		return check(ctx, p, cfg)
-	}
-
-	results := make([]result, 0, len(p.Tasks))
-	stopped := false
-	for _, t := range p.Tasks {
-		if stopped {
-			results = append(results, result{task: t, state: skipped})
-			continue
-		}
-		before := snapshot(p.Module)
-		output, err := runTask(ctx, t, cfg)
-		r := result{task: t, output: output, changes: diff(p.Module, before, snapshot(p.Module))}
-		if err != nil {
-			r.state, r.output = failed, withCause(output, err)
-			stopped = true
-		}
-		results = append(results, r)
-	}
-
-	if stopped {
+	results := runAll(ctx, p, cfg)
+	ok := !slices.ContainsFunc(results, func(r result) bool { return r.state != done })
+	switch {
+	case cfg.Check && ok:
+		fmt.Fprintf(cfg.Out, "%s up to date\n", count(len(p.Tasks), "task"))
+	case cfg.Check:
+		reportCheckFailure(cfg, p.Module, results)
+	case ok:
+		reportSuccess(cfg, p.Module, results)
+	default:
 		reportFailure(cfg, p.Module, results)
+	}
+	if !ok {
 		return ExitFailure
 	}
-	reportSuccess(cfg, p.Module, results)
 	return ExitOK
 }
 
-// check checks the tasks of p in order. What comes after a task that differs
-// would read what that task would write, which is not on disk, so it goes
-// unchecked rather than being compared with what no run would give.
-func check(ctx context.Context, p *plan.Plan, cfg Config) int {
-	bad := make(map[*plan.Task]bool, len(p.Tasks))
+// runAll runs the tasks of p in order, leaving out each that comes after one
+// that failed: what it would read is not what a run would give it, and a check
+// of it would compare with what no run gives.
+func runAll(ctx context.Context, p *plan.Plan, cfg Config) []result {
 	results := make([]result, 0, len(p.Tasks))
+	ended := make(map[*plan.Task]result, len(p.Tasks))
 	for _, t := range p.Tasks {
-		if slices.ContainsFunc(t.After, func(e plan.Edge) bool { return bad[e.From] }) {
-			bad[t] = true
-			results = append(results, result{task: t, state: skipped})
+		if blocked := failedBefore(t, ended, p.Tasks); len(blocked) > 0 || ctx.Err() != nil {
+			r := result{task: t, state: skipped, after: blocked}
+			ended[t] = r
+			results = append(results, r)
 			continue
+		}
+
+		var before map[string]fs.FileInfo
+		if !cfg.Check {
+			before = snapshot(p.Module)
 		}
 		output, err := runTask(ctx, t, cfg)
 		r := result{task: t, output: output}
+		if !cfg.Check {
+			r.changes = diff(p.Module, before, snapshot(p.Module))
+		}
 		if err != nil {
-			bad[t] = true
 			r.state, r.output = failed, withCause(output, err)
 		}
+		ended[t] = r
 		results = append(results, r)
 	}
+	return results
+}
 
-	if len(bad) > 0 {
-		reportCheckFailure(cfg, p.Module, results)
-		return ExitFailure
+// failedBefore returns the failed tasks t comes after, through any left out
+// between, in the order they ran.
+func failedBefore(t *plan.Task, ended map[*plan.Task]result, order []*plan.Task) []*plan.Task {
+	failedOnes := make(map[*plan.Task]bool)
+	for _, e := range t.After {
+		r := ended[e.From]
+		switch r.state {
+		case failed:
+			failedOnes[e.From] = true
+		case skipped:
+			for _, f := range r.after {
+				failedOnes[f] = true
+			}
+		case done:
+		}
 	}
-	fmt.Fprintf(cfg.Out, "%s up to date\n", count(len(p.Tasks), "task"))
-	return ExitOK
+	return slices.DeleteFunc(slices.Clone(order), func(o *plan.Task) bool { return !failedOnes[o] })
 }
 
 // withCause returns what a failed task printed, or why it could not run.
@@ -320,6 +338,13 @@ func (tb table) write(cfg Config, label string, r result) {
 	}
 	if len(outcomes) == 0 && r.state == done && label == "" {
 		outcomes = []string{"unchanged"}
+	}
+	if len(r.after) > 0 {
+		places := make([]string, 0, len(r.after))
+		for _, t := range r.after {
+			places = append(places, tb.placeOf(t))
+		}
+		outcomes = append(outcomes, "after failed "+strings.Join(places, ", "))
 	}
 	if len(outcomes) == 0 {
 		fmt.Fprintln(w, strings.TrimRight(head, " "))
