@@ -71,3 +71,15 @@ A change reaches users through tags, from the bottom up, each step a pull reques
 Until a tag exists, a repository can require another at a merged commit, by its pseudo-version, as
 `go get github.com/go-kanna/internal@<commit>` does. A generated file names no version in its header then; requiring
 the tag afterwards brings it back.
+
+go-kanna/internal is no public API, yet a user's module selects one internal for all its tools, the newest any of them
+requires, and builds each generator at its own tag against it. A release keeps the published tags building:
+
+- An API of internal that the latest tag of a generator or of this repository uses stays for one release after it is
+  replaced. Add the new one beside the old, move every generator to it, and remove the old one once no latest tag uses
+  it. A pull request to go-kanna/internal checks in its CI that the published tags build against it.
+- A change to the runtime call that internal's emit writes into generated code, as of go-kanna/validator, is released
+  together with that runtime and every generator using the emit, so that no generator writes a call its runtime does
+  not have yet.
+- The notes of a release that requires a new internal tell users to update every tool at once with `go get tool`, as
+  `kanna gen` and `kanna vet` do when a generator does not build.
