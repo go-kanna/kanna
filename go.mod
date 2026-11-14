@@ -5,8 +5,8 @@ go 1.26.0
 toolchain go1.26.9
 
 require (
-	github.com/go-kanna/internal v0.0.29
-	golang.org/x/mod v0.42.0
+	github.com/go-kanna/internal v0.0.31
+	golang.org/x/mod v0.43.0
 )
 
 require (
