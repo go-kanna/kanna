@@ -23,7 +23,7 @@ go get -tool github.com/go-kanna/kanna
 go get tool
 ```
 
-`go tool kanna -version` は kanna の版を表示します。各ジェネレータの `-version` と同じです。
+`go tool kanna -version` は kanna のバージョンを表示します。各ジェネレータの `-version` と同じです。
 
 ## 使い方
 
